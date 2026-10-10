@@ -49,10 +49,10 @@ Sources/MoleApp/
 
 ## 下一步
 
-1. 清理页接真实扫描:`FileManager` 遍历缓存/日志候选,先预览后删(进废纸篓);
-2. 软件页读 `/Applications`,用 `NSWorkspace` 取真实图标与大小;
-3. 状态页接 `ProcessInfo` / `host_statistics` 真实指标;
-4. 分析页接真实目录树扫描。
+1. ✓ 软件页:真实 `/Applications` 扫描、真实图标/版本/体积、真实关联残留(已完成)
+2. 状态页:接 `ProcessInfo` / `host_statistics` 真实 CPU/内存/磁盘指标
+3. 清理页:真实扫描缓存/日志候选,先预览后删(进废纸篓)
+4. 分析页:真实目录树扫描
 
 ## 许可证
 

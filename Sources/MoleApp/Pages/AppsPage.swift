@@ -1,21 +1,21 @@
+import AppKit
 import SwiftUI
 
 struct AppsPage: View {
     private enum Sub: String, CaseIterable { case uninstall = "卸载", update = "更新", login = "启动项" }
 
+    @StateObject private var store = AppsStore()
     @State private var sub: Sub = .uninstall
-    @State private var selected: Set<String> = ["vscode"]
-    @State private var expanded: String? = "vscode"
-    @State private var removed: Set<String> = []
+    @State private var selected: Set<String> = []
+    @State private var expanded: String?
+    @State private var leftoverCache: [String: [LeftoverItem]] = [:]
     @State private var updated: Set<String> = []
     @State private var loginItems = MockData.loginItems
 
-    private var apps: [MockData.InstalledApp] {
-        MockData.installedApps.filter { !removed.contains($0.id) }
-    }
+    private var apps: [ScannedApp] { store.apps }
 
-    private var selectedMB: Double {
-        apps.filter { selected.contains($0.id) }.reduce(0) { $0 + $1.sizeMB }
+    private var selectedBytes: Int64 {
+        apps.filter { selected.contains($0.id) }.compactMap(\.sizeBytes).reduce(0, +)
     }
 
     var body: some View {
@@ -26,6 +26,11 @@ struct AppsPage: View {
             case .uninstall: uninstallList
             case .update: updateList
             case .login: loginList
+            }
+        }
+        .task {
+            if store.apps.isEmpty && !store.scanning {
+                store.refresh()
             }
         }
     }
@@ -45,80 +50,159 @@ struct AppsPage: View {
                     .foregroundStyle(sub == item ? Theme.star : Theme.dim2)
             }
             Spacer()
-            Text("名称 · App 大小 · 最近使用 · 安装日期 ↓")
+            if store.scanning {
+                Text("正在扫描 /Applications…")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.dim3)
+            } else {
+                Text("\(apps.count) 个应用 · 大小 \(store.sizedCount)/\(apps.count) 已测量")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.dim3)
+            }
+            Button("重新扫描") { store.refresh() }
+                .buttonStyle(.plain)
                 .font(.system(size: 12))
-                .foregroundStyle(Theme.dim3)
+                .foregroundStyle(Theme.dim2)
+                .underline()
         }
         .padding(.bottom, 10)
     }
 
     private var uninstallList: some View {
         Group {
-            Text("已安装 App \(apps.count + 28) 个 · 18.31GB")
-                .font(.system(size: 12.5))
-                .foregroundStyle(Theme.dim2)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 10)
-                .padding(.bottom, 6)
-
-            ForEach(apps) { app in
-                RowBox(selected: selected.contains(app.id)) {
-                    HStack(spacing: 12) {
-                        AppIconView(mark: app.mark, tone: app.tone)
-                        Text(app.name)
-                            .font(.system(size: 13.5))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(app.meta)
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(Theme.dim2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text("移除 \(MockData.formatSize(app.sizeMB))")
-                            .font(Theme.mono)
-                            .foregroundStyle(Theme.dim2)
-                        CheckView(on: selected.contains(app.id)) { toggle(app.id) }
+            if store.scanning {
+                scanningPlaceholder
+            } else if apps.isEmpty {
+                Text("没有在 /Applications 找到应用")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.dim2)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 60)
+            } else {
+                ForEach(apps) { app in
+                    RowBox(selected: selected.contains(app.id)) {
+                        HStack(spacing: 12) {
+                            appIcon(app)
+                            Text(app.name)
+                                .font(.system(size: 13.5))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text("\(app.version) · \(AppsStore.formatBytes(app.sizeBytes)) · \(app.modified)")
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(Theme.dim2)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(AppsStore.formatBytes(app.sizeBytes))
+                                .font(Theme.mono)
+                                .foregroundStyle(Theme.dim2)
+                            CheckView(on: selected.contains(app.id)) { toggle(app.id) }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            expanded = expanded == app.id ? nil : app.id
+                            loadLeftoversIfNeeded(app)
+                        }
                     }
-                    .contentShape(Rectangle())
-                    .onTapGesture { expanded = expanded == app.id ? nil : app.id }
+
+                    if expanded == app.id {
+                        expandPanel(app)
+                    }
                 }
 
-                if expanded == app.id {
-                    expandPanel
-                }
-            }
-
-            FootBar(note: "\(selected.count) 个 App · \(MockData.formatSize(selectedMB)) — 一并移除数据 · 取消选择") {
-                PillButton(title: "移除 \(selected.count) 项", disabled: selected.isEmpty) {
-                    removed.formUnion(selected)
-                    selected = []
-                    expanded = nil
+                FootBar(note: footerNote) {
+                    PillButton(title: "移除 \(selected.count) 项", disabled: selected.isEmpty) {
+                        selected = []
+                        expanded = nil
+                    }
                 }
             }
         }
     }
 
-    private var expandPanel: some View {
+    private func appIcon(_ app: ScannedApp) -> some View {
+        Group {
+            if let icon = app.icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .frame(width: 28, height: 28)
+            } else {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.white.opacity(0.08))
+                    .frame(width: 28, height: 28)
+            }
+        }
+    }
+
+    private var scanningPlaceholder: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.small)
+            Text("正在读取 /Applications 与 ~/Applications …")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Theme.dim2)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 70)
+    }
+
+    private var footerNote: String {
+        let sizeText = selectedBytes > 0 ? AppsStore.formatBytes(selectedBytes) : "大小测量中"
+        return "\(selected.count) 个 App · \(sizeText) — 真实删除将在下一步接入"
+    }
+
+    private func expandPanel(_ app: ScannedApp) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("清除")
+            HStack {
+                Text("清除")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.dim2)
+                Spacer()
+                Button("在访达中显示") {
+                    NSWorkspace.shared.activateFileViewerSelecting([app.url])
+                }
+                .buttonStyle(.plain)
                 .font(.system(size: 12))
                 .foregroundStyle(Theme.dim2)
-                .padding(.leading, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-            ForEach(MockData.vscodeLeftovers, id: \.path) { item in
-                RowBox {
-                    HStack(spacing: 12) {
-                        CheckView(on: true)
-                        Text(item.kind)
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(Theme.star.opacity(0.72))
-                            .frame(width: 90, alignment: .leading)
-                        Text(item.path)
-                            .font(Theme.monoSmall)
-                            .foregroundStyle(Theme.dim3)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(item.size).font(Theme.mono).foregroundStyle(Theme.dim2)
+                .underline()
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            if let items = leftoverCache[app.id] {
+                if items.isEmpty {
+                    Text("没有找到关联残留文件")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.dim3)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                } else {
+                    ForEach(items) { item in
+                        RowBox {
+                            HStack(spacing: 12) {
+                                CheckView(on: true)
+                                Text(item.kind)
+                                    .font(.system(size: 12.5))
+                                    .foregroundStyle(Theme.star.opacity(0.72))
+                                    .frame(width: 90, alignment: .leading)
+                                Text(item.path)
+                                    .font(Theme.monoSmall)
+                                    .foregroundStyle(Theme.dim3)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(AppsStore.formatBytes(item.sizeBytes))
+                                    .font(Theme.mono)
+                                    .foregroundStyle(Theme.dim2)
+                            }
+                        }
                     }
                 }
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("正在检查关联文件…")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.dim3)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             }
         }
         .padding(6)
@@ -128,9 +212,29 @@ struct AppsPage: View {
         .padding(.horizontal, 6)
     }
 
+    private func loadLeftoversIfNeeded(_ app: ScannedApp) {
+        guard leftoverCache[app.id] == nil else { return }
+        Task.detached(priority: .userInitiated) {
+            let items = AppsStore.leftovers(for: app)
+            await MainActor.run {
+                leftoverCache[app.id] = items
+            }
+        }
+    }
+
+    private func toggle(_ id: String) {
+        if selected.contains(id) {
+            selected.remove(id)
+        } else {
+            selected.insert(id)
+        }
+    }
+
+    // ---------------------------------------------------------- 更新 / 启动项(示意,下一步接真实来源)
+
     private var updateList: some View {
         Group {
-            Text("\(MockData.updates.count) 个应用有新版本")
+            Text("更新检查将在接入 Sparkle / App Store 后展示真实结果")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.dim2)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -174,7 +278,7 @@ struct AppsPage: View {
 
     private var loginList: some View {
         Group {
-            Text("登录项与后台项,所有改动即时生效")
+            Text("登录项读取将在下一步接入(ServiceManagement)")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.dim2)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -200,14 +304,6 @@ struct AppsPage: View {
             FootBar(note: "\(loginItems.filter { !$0.on }.count) 项已停用") {
                 PillButton(title: "恢复默认") { loginItems = MockData.loginItems }
             }
-        }
-    }
-
-    private func toggle(_ id: String) {
-        if selected.contains(id) {
-            selected.remove(id)
-        } else {
-            selected.insert(id)
         }
     }
 }
