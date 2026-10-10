@@ -6,11 +6,11 @@ struct AppsPage: View {
 
     @ObservedObject var store: AppsStore
     @ObservedObject var loginStore: LoginItemsStore
+    @ObservedObject var updateStore: UpdateStore
     @State private var sub: Sub = .uninstall
     @State private var selected: Set<String> = []
     @State private var expanded: String?
     @State private var leftoverCache: [String: [LeftoverItem]] = [:]
-    @State private var updated: Set<String> = []
     @State private var pendingEntry: LoginEntry?
     @State private var showConfirm = false
 
@@ -245,46 +245,102 @@ struct AppsPage: View {
     // ---------------------------------------------------------- 更新 / 启动项(示意,下一步接真实来源)
 
     private var updateList: some View {
-        Group {
-            Text("更新检查将在接入 Sparkle / App Store 后展示真实结果")
+        LazyVStack(spacing: 2) {
+            Text("检查来源:Sparkle 应用与 Homebrew;App Store 更新由系统设置负责")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.dim2)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 10)
                 .padding(.bottom, 6)
-            ForEach(MockData.updates) { row in
+
+            if updateStore.checking {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(updateStore.progress.isEmpty ? "正在检查更新…" : updateStore.progress)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.dim2)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 40)
+            } else if updateStore.updates.isEmpty {
+                Text(updateStore.lastChecked == nil ? "尚未检查" : "全部是最新版本")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Theme.dim2)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 50)
+            }
+
+            ForEach(updateStore.checking ? [] : updateStore.updates) { info in
                 RowBox {
                     HStack(spacing: 12) {
-                        AppIconView(mark: row.mark, tone: row.tone)
-                        Text(row.name)
+                        Text(info.name)
                             .font(.system(size: 13.5))
+                            .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        Text("\(row.from) → \(row.to)")
-                            .font(.system(size: 12.5))
+                        Text(info.source)
+                            .font(.system(size: 10.5))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 2)
+                            .background(Color.white.opacity(0.08), in: Capsule())
+                            .foregroundStyle(Theme.dim3)
+                        Text("\(info.from) → \(info.to)")
+                            .font(Theme.monoSmall)
                             .foregroundStyle(Theme.dim2)
+                            .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                        if let message = updateStore.messages[info.id] {
+                            Text(message)
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(
+                                    message.contains("失败") ? Color(hex: 0xF09090) : Theme.dim3
+                                )
+                                .lineLimit(1)
+                                .frame(width: 210, alignment: .trailing)
+                        }
                         Button {
-                            updated.insert(row.id)
+                            Task { await updateStore.perform(info) }
                         } label: {
-                            Text(updated.contains(row.id) ? "已是最新" : "更新")
+                            Text(buttonTitle(for: info))
                                 .font(.system(size: 12))
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 6)
-                                .background(
-                                    updated.contains(row.id) ? Color.white.opacity(0.08) : Color(hex: 0xEFE8D8, opacity: 0.9),
-                                    in: Capsule()
-                                )
-                                .foregroundStyle(updated.contains(row.id) ? Theme.dim2 : Color(hex: 0x17181B))
+                                .background(Color(hex: 0xEFE8D8, opacity: 0.9), in: Capsule())
+                                .foregroundStyle(Color(hex: 0x17181B))
                         }
                         .buttonStyle(.plain)
+                        .disabled(updateStore.busyID != nil)
+                        .opacity(updateStore.busyID == nil ? 1 : 0.5)
                     }
                 }
             }
-            FootBar(note: "更新来源:Sparkle · App Store · Homebrew") {
-                PillButton(title: "全部更新", disabled: updated.count == MockData.updates.count) {
-                    for row in MockData.updates { updated.insert(row.id) }
+
+            FootBar(note: updateStore.lastCheckedText()) {
+                PillButton(title: "重新检查", disabled: updateStore.checking || updateStore.busyID != nil) {
+                    Task { await runCheck(force: true) }
                 }
             }
+        }
+        .task {
+            await runCheck(force: false)
+        }
+    }
+
+    private func runCheck(force: Bool) async {
+        if store.apps.isEmpty {
+            if !store.scanning { store.refresh() }
+            var waited = 0
+            while store.apps.isEmpty && waited < 100 {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+                waited += 1
+            }
+        }
+        await updateStore.check(apps: store.apps, force: force)
+    }
+
+    private func buttonTitle(for info: UpdateInfo) -> String {
+        switch info.action {
+        case .sparkle: "打开更新"
+        case .brew: "更新"
         }
     }
 

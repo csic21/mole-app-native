@@ -32,6 +32,7 @@ struct ContentView: View {
     @StateObject private var cleanStore = CleanStore()
     @StateObject private var appsStore = AppsStore()
     @StateObject private var loginStore = LoginItemsStore()
+    @StateObject private var updateStore = UpdateStore()
     @StateObject private var optimizeStore = OptimizeStore()
     @StateObject private var analyzeStore = AnalyzeStore()
     @StateObject private var statusStore = StatusStore()
@@ -57,7 +58,7 @@ struct ContentView: View {
     private var page: some View {
         switch tab {
         case .clean: CleanPage(store: cleanStore)
-        case .apps: AppsPage(store: appsStore, loginStore: loginStore)
+        case .apps: AppsPage(store: appsStore, loginStore: loginStore, updateStore: updateStore)
         case .optimize: OptimizePage(store: optimizeStore)
         case .analyze: AnalyzePage(store: analyzeStore)
         case .status: StatusPage(store: statusStore)

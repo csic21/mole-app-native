@@ -25,19 +25,6 @@ struct CheckView: View {
     }
 }
 
-struct AppIconView: View {
-    let mark: String
-    let tone: Color
-
-    var body: some View {
-        Text(mark)
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 28, height: 28)
-            .background(tone, in: RoundedRectangle(cornerRadius: 8))
-    }
-}
-
 struct BarView: View {
     var value: Double
     var warm = false

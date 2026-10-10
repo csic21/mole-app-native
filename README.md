@@ -21,7 +21,7 @@ swift run        # 直接启动(需要 macOS 14+ 与 Xcode)
 | 标签 | 交互 |
 | --- | --- |
 | 清理 | **已接真实数据**:扫描固定白名单 5 类(用户缓存/用户日志/Xcode DerivedData/设备支持/npm 缓存,跳过 `com.apple.*` 与 DiagnosticReports);真实体积与子项预览;勾选 → 确认 → **移到废纸篓**(可恢复),落闸前逐条重校验路径归属,符号链接一律跳过 |
-| 软件 | **已接真实数据**:扫描 `/Applications` 与 `~/Applications`,真实图标(`NSWorkspace`)、版本与体积(四并发测量);展开显示真实关联残留,可「在访达中显示」;更新与启动项仍为示意 |
+| 软件 | **已接真实数据**:扫描 `/Applications` 与 `~/Applications`,真实图标(`NSWorkspace`)、版本与体积(四并发测量);展开显示真实关联残留,可「在访达中显示」;**更新**:Sparkle 应用(appcast)与 Homebrew(`brew outdated`)真实检查,Sparkle 走「打开更新」、Homebrew 走 `brew upgrade`;**启动项**:真实 LaunchAgents,用户级可持久启停,系统级只读 |
 | 优化 | **已接真实执行**:Quick Look 缩略图重建、DNS 缓存刷新(弹系统授权,取消则跳过)、Spotlight 索引检查(只读)、磁盘校验(只读);逐项执行,结果/失败/跳过都写在行内 |
 | 分析 | **已接真实数据**:从主目录开始逐层下钻真实文件/目录,四并发逐项测体积;点目录进入、点文件在访达中显示、右键菜单定位、面包屑返回;真实磁盘用量图例;跳过符号链接 |
 | 状态 | **已接真实指标**:CPU 真实采样与滚动曲线、内存/交换空间、磁盘根卷、网络上下行速率、负载、电池;进程表读 `ps` 的真实内存 TOP 8;GPU 与 SMC(温度/风扇)已标注为下一步 |
@@ -54,8 +54,9 @@ Sources/MoleApp/
 3. ✓ 清理页:真实扫描 5 类白名单 → 确认后移到废纸篓(已完成)
 4. ✓ 分析页:真实目录树扫描(已完成)
 5. ✓ 优化页:真实执行 Quick Look 重建 / DNS 刷新 / Spotlight 检查 / 磁盘校验(已完成)
-6. 更新与启动项接入真实来源(Sparkle / ServiceManagement)
-7. GPU 利用率、SMC 温度与风扇(需要 IOKit 更深接入)
+6. ✓ 启动项:真实 LaunchAgents 读取 + 用户级持久启停(已完成)
+7. ✓ 更新检查:Sparkle(appcast)与 Homebrew(`brew outdated`)真实来源(已完成)
+8. GPU 利用率、SMC 温度与风扇(需要 IOKit 更深接入)
 
 ## 许可证
 
