@@ -1,12 +1,12 @@
 import SwiftUI
 
 struct OptimizePage: View {
-    @State private var tasks = MockData.tasks
-    @State private var running = false
+    @StateObject private var store = OptimizeStore()
 
-    private var finished: Int { tasks.filter { $0.status == .done }.count }
-    private var skipped: Int { tasks.filter { $0.status == .skip }.count }
-    private var idle: Int { tasks.filter { $0.status == .idle }.count }
+    private var doneCount: Int { store.states.filter { $0.status == .done }.count }
+    private var skippedCount: Int { store.states.filter { $0.status == .skipped }.count }
+    private var failedCount: Int { store.states.filter { $0.status == .failed }.count }
+    private var idleCount: Int { store.states.filter { $0.status == .idle }.count }
 
     var body: some View {
         VStack(spacing: 2) {
@@ -17,7 +17,7 @@ struct OptimizePage: View {
                     .padding(.vertical, 5)
                     .background(Color(hex: 0xEFE8D8, opacity: 0.12), in: Capsule())
                 Spacer()
-                Text("有风险的任务自动跳过并说明")
+                Text("全部在本机执行 · 遇授权会先弹系统窗口 · 失败会说明原因")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.dim3)
             }
@@ -31,67 +31,73 @@ struct OptimizePage: View {
                     .foregroundStyle(Theme.star.opacity(0.8))
                     .padding(.top, 30)
                     .padding(.bottom, 20)
-                PillButton(title: running ? "优化中…" : "优化 Mac", disabled: running) { run() }
+                PillButton(title: store.running ? "优化中…" : "优化 Mac", disabled: store.running) {
+                    Task { await store.runAll() }
+                }
             }
             .frame(maxWidth: .infinity)
             .padding(.bottom, 18)
 
-            ForEach(tasks) { task in
+            ForEach(store.states) { task in
                 RowBox {
                     HStack(spacing: 12) {
-                        Text(task.name)
-                            .font(.system(size: 13.5))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(task.note)
-                            .font(.system(size: 12.5))
-                            .foregroundStyle(Theme.dim2)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        HStack(spacing: 6) {
+                            Text(task.title).font(.system(size: 13.5))
+                            if task.readOnly {
+                                Text("只读")
+                                    .font(.system(size: 10.5))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(Color.white.opacity(0.08), in: Capsule())
+                                    .foregroundStyle(Theme.dim3)
+                            }
+                            if task.requiresAuth {
+                                Text("需授权")
+                                    .font(.system(size: 10.5))
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(Color(hex: 0x8B7CF0, opacity: 0.16), in: Capsule())
+                                    .foregroundStyle(Color(hex: 0xB3A8F5))
+                            }
+                        }
+                        .frame(width: 200, alignment: .leading)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(task.note)
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(Theme.dim2)
+                                .lineLimit(1)
+                            if let result = task.result, task.status != .running {
+                                Text(result)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(
+                                        task.status == .failed ? Color(hex: 0xF09090) : Theme.dim3
+                                    )
+                                    .lineLimit(1)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
                         chip(for: task)
                     }
                 }
             }
 
-            FootBar(note: "\(finished) 项完成 · \(skipped) 项跳过 · \(idle) 项待命") {
-                PillButton(title: "再次运行", disabled: running) { run() }
+            FootBar(note: "\(doneCount) 项完成 · \(skippedCount) 项跳过 · \(failedCount) 项失败 · \(idleCount) 项待命") {
+                PillButton(title: "再次运行", disabled: store.running) {
+                    Task { await store.runAll() }
+                }
             }
         }
-        .task(id: running) {
-            guard running else { return }
-            while true {
-                try? await Task.sleep(nanoseconds: 620_000_000)
-                if Task.isCancelled { return }
-                let advanced = advance()
-                if !advanced { break }
-            }
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            running = false
-        }
     }
 
-    private func run() {
-        guard !running else { return }
-        tasks = MockData.tasks
-        running = true
-    }
-
-    private func advance() -> Bool {
-        if let index = tasks.firstIndex(where: { $0.status == .running }) {
-            tasks[index].status = tasks[index].skipNote == nil ? .done : .skip
-            return true
-        }
-        if let index = tasks.firstIndex(where: { $0.status == .idle }) {
-            tasks[index].status = .running
-            return true
-        }
-        return false
-    }
-
-    private func chip(for task: MockData.Task) -> Chip {
+    private func chip(for task: OptimizeTaskState) -> Chip {
         switch task.status {
-        case .done: Chip(text: "完成", tone: .done)
-        case .skip: Chip(text: task.skipNote ?? "跳过", tone: .skip)
-        case .running: Chip(text: "执行中…", tone: .running)
         case .idle: Chip(text: "待命")
+        case .running: Chip(text: "执行中…", tone: .running)
+        case .done: Chip(text: "完成", tone: .done)
+        case .skipped: Chip(text: "跳过", tone: .skip)
+        case .failed: Chip(text: "失败", tone: .failed)
         }
     }
 }

@@ -140,7 +140,7 @@ struct FootBar<Trailing: View>: View {
 }
 
 struct Chip: View {
-    enum Tone { case plain, done, skip, running }
+    enum Tone { case plain, done, skip, running, failed }
     let text: String
     var tone: Tone = .plain
 
@@ -159,6 +159,7 @@ struct Chip: View {
         case .done: Color(hex: 0x68C46B, opacity: 0.16)
         case .skip: Color(hex: 0xE28E60, opacity: 0.16)
         case .running: Color(hex: 0x8B7CF0, opacity: 0.18)
+        case .failed: Color(hex: 0xE05C5C, opacity: 0.16)
         }
     }
 
@@ -168,6 +169,7 @@ struct Chip: View {
         case .done: Color(hex: 0x8FD693)
         case .skip: Color(hex: 0xE8A97F)
         case .running: Color(hex: 0xB3A8F5)
+        case .failed: Color(hex: 0xF09090)
         }
     }
 }
