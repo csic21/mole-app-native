@@ -18,17 +18,4 @@ enum MockData {
         .init(id: "u2", mark: "C", tone: Color(hex: 0x2F79C9), name: "Cursor", from: "1.7.52", to: "1.8.1"),
         .init(id: "u3", mark: "R", tone: Color(hex: 0xB34A5E), name: "Raycast", from: "1.98.0", to: "1.99.1"),
     ]
-
-    struct LoginItem: Identifiable {
-        let id: String
-        let name: String
-        let note: String
-        var on: Bool
-    }
-
-    static let loginItems: [LoginItem] = [
-        .init(id: "g1", name: "Dropbox", note: "登录时打开", on: true),
-        .init(id: "g2", name: "Unsplash Wallpapers", note: "后台运行", on: true),
-        .init(id: "g3", name: "Legacy Helper", note: "所属应用已卸载", on: false),
-    ]
 }

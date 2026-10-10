@@ -5,12 +5,14 @@ struct AppsPage: View {
     private enum Sub: String, CaseIterable { case uninstall = "卸载", update = "更新", login = "启动项" }
 
     @ObservedObject var store: AppsStore
+    @ObservedObject var loginStore: LoginItemsStore
     @State private var sub: Sub = .uninstall
     @State private var selected: Set<String> = []
     @State private var expanded: String?
     @State private var leftoverCache: [String: [LeftoverItem]] = [:]
     @State private var updated: Set<String> = []
-    @State private var loginItems = MockData.loginItems
+    @State private var pendingEntry: LoginEntry?
+    @State private var showConfirm = false
 
     private var apps: [ScannedApp] { store.apps }
 
@@ -287,33 +289,101 @@ struct AppsPage: View {
     }
 
     private var loginList: some View {
-        Group {
-            Text("登录项读取将在下一步接入(ServiceManagement)")
+        LazyVStack(spacing: 2) {
+            Text("来自 ~/Library 与 /Library 的 LaunchAgents;macOS 设置的登录项(BTM)暂不读取")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.dim2)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.leading, 10)
                 .padding(.bottom, 6)
-            ForEach($loginItems) { $item in
+
+            if loginStore.scanning && loginStore.entries.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("正在读取登录项…")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.dim2)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 40)
+            }
+
+            ForEach(loginStore.scanning && loginStore.entries.isEmpty ? [] : loginStore.entries) { entry in
                 RowBox {
                     HStack(spacing: 12) {
-                        CheckView(on: item.on) { item.on.toggle() }
-                        Text(item.name)
-                            .font(.system(size: 13.5))
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(item.note)
+                        CheckView(on: !entry.disabled) {
+                            guard entry.scope == .user else { return }
+                            pendingEntry = entry
+                            showConfirm = true
+                        }
+                        .opacity(entry.scope == .user ? 1 : 0.4)
+
+                        HStack(spacing: 6) {
+                            Text(entry.label)
+                                .font(.system(size: 13))
+                                .lineLimit(1)
+                            Text(entry.scope == .user ? "用户" : "系统")
+                                .font(.system(size: 10.5))
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 2)
+                                .background(Color.white.opacity(0.08), in: Capsule())
+                                .foregroundStyle(Theme.dim3)
+                        }
+                        .frame(width: 330, alignment: .leading)
+
+                        Text(entry.program.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "—")
                             .font(.system(size: 12.5))
                             .foregroundStyle(Theme.dim2)
+                            .lineLimit(1)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(item.on ? "已启用" : "已停用")
-                            .font(Theme.mono)
+
+                        if let error = loginStore.errors[entry.id] {
+                            Text(error)
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(Color(hex: 0xF09090))
+                                .lineLimit(1)
+                                .frame(width: 200, alignment: .trailing)
+                        }
+
+                        Text(stateText(for: entry))
+                            .font(Theme.monoSmall)
                             .foregroundStyle(Theme.dim2)
+                            .frame(width: 110, alignment: .trailing)
                     }
                 }
             }
-            FootBar(note: "\(loginItems.filter { !$0.on }.count) 项已停用") {
-                PillButton(title: "恢复默认") { loginItems = MockData.loginItems }
+
+            FootBar(note: "用户级 \(loginStore.entries.filter { $0.scope == .user && !$0.disabled }.count) 项启用 · 启停跨重启生效") {
+                PillButton(title: "重新扫描") { loginStore.scan() }
             }
         }
+        .task {
+            if loginStore.entries.isEmpty && !loginStore.scanning {
+                loginStore.scan()
+            }
+        }
+        .alert("登录项", isPresented: $showConfirm) {
+            Button("取消", role: .cancel) { pendingEntry = nil }
+            if let entry = pendingEntry {
+                Button(entry.disabled ? "启用" : "停用", role: entry.disabled ? nil : .destructive) {
+                    Task {
+                        await loginStore.setEnabled(entry, enabled: entry.disabled)
+                        pendingEntry = nil
+                    }
+                }
+            }
+        } message: {
+            if let entry = pendingEntry {
+                Text(entry.disabled
+                    ? "启用 \(entry.label) 会立即加载,并在之后每次登录自动运行。"
+                    : "停用 \(entry.label) 会立即停止它,之后每次登录也不再运行;随时可以再启用。")
+            }
+        }
+    }
+
+    private func stateText(for entry: LoginEntry) -> String {
+        if entry.scope == .system { return "只读" }
+        if entry.disabled { return "已停用" }
+        return entry.loaded ? "已启用 · 运行中" : "已启用"
     }
 }

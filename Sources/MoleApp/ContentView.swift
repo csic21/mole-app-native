@@ -31,6 +31,7 @@ struct ContentView: View {
     // store 只在 ContentView 建一次:切回任意标签都直接渲染缓存,不会再触发重扫。
     @StateObject private var cleanStore = CleanStore()
     @StateObject private var appsStore = AppsStore()
+    @StateObject private var loginStore = LoginItemsStore()
     @StateObject private var optimizeStore = OptimizeStore()
     @StateObject private var analyzeStore = AnalyzeStore()
     @StateObject private var statusStore = StatusStore()
@@ -56,7 +57,7 @@ struct ContentView: View {
     private var page: some View {
         switch tab {
         case .clean: CleanPage(store: cleanStore)
-        case .apps: AppsPage(store: appsStore)
+        case .apps: AppsPage(store: appsStore, loginStore: loginStore)
         case .optimize: OptimizePage(store: optimizeStore)
         case .analyze: AnalyzePage(store: analyzeStore)
         case .status: StatusPage(store: statusStore)
