@@ -1,56 +1,9 @@
+// 示意数据:只保留尚未接入真实来源的模块(更新 / 启动项 / 优化任务 / 分析树)。
+// 清理、软件、状态三个页已经使用真实数据,对应 mock 已移除。
+
 import SwiftUI
 
-struct CleanGroup: Identifiable {
-    let id: String
-    let name: String
-    let note: String
-    let sizeText: String
-    let sizeMB: Double
-    var children: [(name: String, note: String, sizeText: String)] = []
-}
-
 enum MockData {
-    static let cleanGroups: [CleanGroup] = [
-        CleanGroup(
-            id: "system", name: "系统数据", note: "快照、缓存与日志单独成组",
-            sizeText: "128.4 GB", sizeMB: 131481,
-            children: [
-                (name: "快照", note: "本地 APFS 快照", sizeText: "12.6 GB"),
-                (name: "系统缓存", note: "可重建", sizeText: "86.2 GB"),
-                (name: "日志与诊断", note: "30 天前", sizeText: "29.6 GB"),
-            ]
-        ),
-        CleanGroup(id: "xcode", name: "Xcode 缓存", note: "DerivedData 与设备支持", sizeText: "36.2 GB", sizeMB: 37068),
-        CleanGroup(id: "ai", name: "AI 工具旧会话", note: "Codex 与 Claude Code", sizeText: "8.7 GB", sizeMB: 8909),
-        CleanGroup(id: "browser", name: "浏览器缓存", note: "Chrome 与 Safari", sizeText: "2.3 GB", sizeMB: 2355),
-        CleanGroup(id: "trash", name: "废纸篓", note: "31 项", sizeText: "1.4 GB", sizeMB: 1434),
-    ]
-
-    struct InstalledApp: Identifiable {
-        let id: String
-        let mark: String
-        let tone: Color
-        let name: String
-        let meta: String
-        let sizeMB: Double
-    }
-
-    static let installedApps: [InstalledApp] = [
-        .init(id: "slack", mark: "S", tone: Color(hex: 0x5B7BB3), name: "Slack", meta: "4.42.0 · 421.8MB · 8 小时前 活跃", sizeMB: 422),
-        .init(id: "figma", mark: "F", tone: Color(hex: 0x8A5BC0), name: "Figma", meta: "124.6 · 336.2MB · 昨天 活跃", sizeMB: 336),
-        .init(id: "vscode", mark: "V", tone: Color(hex: 0x2F79C9), name: "Visual Studio Code", meta: "1.139.1 · 913.4MB · 2 天前 活跃", sizeMB: 913),
-        .init(id: "warp", mark: "W", tone: Color(hex: 0xC9762F), name: "Warp", meta: "0.2026.1 · 288.4MB · 3 天前 活跃", sizeMB: 288),
-        .init(id: "raycast", mark: "R", tone: Color(hex: 0xB34A5E), name: "Raycast", meta: "1.98.0 · 164.2MB · 5 天前 活跃", sizeMB: 164),
-    ]
-
-    static let vscodeLeftovers: [(kind: String, path: String, size: String)] = [
-        ("App", "/Applications/Visual Studio Code.app", "913.4MB"),
-        ("临时缓存", "~/Library/Application Support/Code", "3.1MB"),
-        ("HTTP 存储", "~/Library/HTTPStorages/com.microsoft.VSCode", "696KB"),
-        ("最近使用记录", "~/Library/Application Support/.../com.microsoft.vscode.sfl4", "9KB"),
-        ("Electron 缓存", "~/Library/Application Support/Code/Cache", "0KB"),
-    ]
-
     struct UpdateRow: Identifiable {
         let id: String
         let mark: String
@@ -127,27 +80,4 @@ enum MockData {
             TreeNode(id: "documents", name: "Documents", sizeText: "10.39 GB", sizeMB: 10639, tone: Color(hex: 0x5A5348)),
         ]
     )
-
-    struct ProcessRow: Identifiable {
-        let id: String
-        let name: String
-        let mem: String
-        let memPct: Double
-        let cpu: Double
-        let pid: Int
-    }
-
-    static let processes: [ProcessRow] = [
-        .init(id: "p1", name: "Parallels Desktop", mem: "14.3 GB", memPct: 88, cpu: 32.0, pid: 15980),
-        .init(id: "p2", name: "Claude", mem: "4.2 GB", memPct: 32, cpu: 55.0, pid: 22350),
-        .init(id: "p3", name: "ChatGPT", mem: "2.1 GB", memPct: 16, cpu: 7.7, pid: 74821),
-        .init(id: "p4", name: "Cursor", mem: "2.0 GB", memPct: 15, cpu: 44.7, pid: 74509),
-        .init(id: "p5", name: "微信", mem: "1.2 GB", memPct: 9, cpu: 1.8, pid: 49392),
-    ]
-
-    static func formatSize(_ sizeMB: Double) -> String {
-        if sizeMB >= 1024 * 1024 { return String(format: "%.2f TB", sizeMB / 1024 / 1024) }
-        if sizeMB >= 1024 { return String(format: "%.2f GB", sizeMB / 1024) }
-        return "\(Int(sizeMB.rounded())) MB"
-    }
 }
