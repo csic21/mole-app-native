@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum Tab: String, CaseIterable, Identifiable {
@@ -36,10 +37,11 @@ struct ContentView: View {
     @StateObject private var optimizeStore = OptimizeStore()
     @StateObject private var analyzeStore = AnalyzeStore()
     @StateObject private var statusStore = StatusStore()
+    @StateObject private var selfUpdate = SelfUpdateStore()
 
     var body: some View {
         VStack(spacing: 0) {
-            TopBar(tab: $tab)
+            TopBar(tab: $tab, selfUpdate: selfUpdate)
             ScrollView {
                 page
                     .padding(.horizontal, 30)
@@ -52,6 +54,9 @@ struct ContentView: View {
         }
         .background(tab.background.animation(.easeInOut(duration: 0.22), value: tab))
         .background(WindowConfigurator().frame(width: 0, height: 0))
+        .task {
+            selfUpdate.checkOnce()
+        }
     }
 
     @ViewBuilder
@@ -68,6 +73,7 @@ struct ContentView: View {
 
 struct TopBar: View {
     @Binding var tab: Tab
+    @ObservedObject var selfUpdate: SelfUpdateStore
 
     var body: some View {
         ZStack {
@@ -95,9 +101,26 @@ struct TopBar: View {
 
             HStack {
                 Spacer()
-                Text("v0.1 · 研究版")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(Theme.dim3)
+                if selfUpdate.updateAvailable, let tag = selfUpdate.latestTag {
+                    Button {
+                        if let url = selfUpdate.releaseURL {
+                            NSWorkspace.shared.open(url)
+                        }
+                    } label: {
+                        Text("↑ 新版本 \(tag)")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(Color(hex: 0x68C46B, opacity: 0.18), in: Capsule())
+                            .foregroundStyle(Color(hex: 0x8FD693))
+                    }
+                    .buttonStyle(.plain)
+                    .help("打开 GitHub Releases 下载新版本")
+                } else {
+                    Text("v\(AppVersion.current) · 研究版")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.dim3)
+                }
             }
         }
         .padding(.leading, 84)

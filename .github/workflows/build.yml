@@ -1,0 +1,21 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build .app package
+        run: ./scripts/package_app.sh 0.0.0-ci
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MoleApp-ci
+          path: dist/MoleApp-0.0.0-ci.zip
+          retention-days: 7

@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号(如 0.2.0),仅手动发布时使用'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ -n "${GITHUB_REF_NAME:-}" && "${GITHUB_REF_NAME}" == v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            V="${{ github.event.inputs.version }}"
+            [[ -n "$V" ]] || { echo "缺少版本号"; exit 1; }
+            echo "version=$V" >> "$GITHUB_OUTPUT"
+            echo "tag=v$V" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package .app
+        run: ./scripts/package_app.sh "${{ steps.version.outputs.version }}"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.tag }}" \
+            dist/MoleApp-*.zip \
+            --title "${{ steps.version.outputs.tag }}" \
+            --generate-notes

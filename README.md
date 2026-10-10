@@ -33,19 +33,39 @@ swift run        # 直接启动(需要 macOS 14+ 与 Xcode)
 
 ```
 Package.swift              # SwiftPM 工程(macOS 14+)
+scripts/package_app.sh     # 本地/CI 打包 .app 与 zip(ad-hoc 签名)
 Sources/MoleApp/
   MoleApp.swift            # App 入口、窗口配置(隐藏标题栏/拖动)
-  ContentView.swift        # 顶部胶囊标签 + 页面切换
+  ContentView.swift        # 顶部胶囊标签 + 页面切换 + 新版本提示
   Theme.swift              # 颜色与字体令牌
-  Data.swift               # 示意数据(未来接 FileManager / ProcessInfo 的落点)
   Components.swift         # 复选框、能量条、火花线、按钮…
+  CommandRunner.swift      # 带超时的进程执行器(brew / launchctl / ps…)
+  AppVersion.swift         # 当前版本(打包读 Info.plist,开发运行回落常量)
+  SelfUpdate.swift         # 基于 GitHub Releases 的自我更新检查
+  SystemMetrics.swift      # 真实系统指标(CPU/内存/磁盘/网络/负载/进程/SMC)
+  AppsScan.swift           # /Applications 扫描、真实图标/体积/关联残留
+  LoginItems.swift         # 真实 LaunchAgents 读取与持久启停
+  UpdateChecker.swift      # Sparkle appcast + Homebrew outdated
+  CleanScan.swift          # 清理白名单扫描 + 废纸篓闭环
+  AnalyzeScan.swift        # 真实目录树逐层扫描
   Pages/
     CleanPage.swift        # 清理:扫描/结果/清单/完成 四态
     AppsPage.swift         # 软件:卸载 / 更新 / 启动项
-    OptimizePage.swift     # 优化:任务运行器 + 月球
+    OptimizePage.swift     # 优化:真实任务运行器 + 月球
     AnalyzePage.swift      # 分析:树形下钻 + 方块图
     StatusPage.swift       # 状态:指标卡 + 进程表
 ```
+
+## 发布与更新
+
+- **自动构建**:推送 `main` 或提 PR,GitHub Actions 会构建 .app 并上传构建产物(`Build` workflow)
+- **发版**:`git tag v0.1.0 && git push origin v0.1.0` → `Release` workflow 自动打包 zip 并创建
+  [GitHub Release](https://github.com/csic21/mole-app-native/releases)
+- **下载安装**:在 Releases 下载 `MoleApp-x.y.z.zip`,解压后把 `MoleApp.app` 拖进「应用程序」
+- **首次打开**:应用为 ad-hoc 临时签名、未公证,双击可能被 Gatekeeper 拦截——请**右键 → 打开**,或执行
+  `xattr -dr com.apple.quarantine /Applications/MoleApp.app`
+- **App 内更新检查**:启动时读取 GitHub Releases 的 latest tag 与本机版本比较;有新版本时右上角出现
+  「↑ 新版本 vX.Y.Z」按钮,点击前往下载页(只提示,不自动下载)
 
 ## 下一步
 
