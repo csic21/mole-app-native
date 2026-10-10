@@ -241,6 +241,7 @@ final class StatusStore: ObservableObject {
 
     private var timer: Timer?
     private var tick = 0
+    private var sampling = false
     private var previousTicks: SystemMetrics.CpuTicks?
     private var previousNetwork: (received: UInt64, sent: UInt64)?
     private var previousNetworkTime: Date?
@@ -282,7 +283,7 @@ final class StatusStore: ObservableObject {
 
     func start() {
         guard timer == nil else { return }
-        sample()
+        tickOnce()
         timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tickOnce() }
         }
@@ -295,10 +296,15 @@ final class StatusStore: ObservableObject {
 
     private func tickOnce() {
         tick += 1
-        sample()
+        guard !sampling else { return }
+        sampling = true
+        Task { [weak self] in
+            await self?.sample()
+            self?.sampling = false
+        }
     }
 
-    private func sample() {
+    private func sample() async {
         if let current = SystemMetrics.cpuTicks() {
             if let previous = previousTicks {
                 cpu = SystemMetrics.cpuUsage(from: previous, to: current)
@@ -306,39 +312,42 @@ final class StatusStore: ObservableObject {
             previousTicks = current
         }
         cpuHistory = shift(cpuHistory, appending: cpu)
+        load = SystemMetrics.loadAverage()
 
         let shouldDoHeavy = previousDisk == nil || tick % 2 == 0
-        guard shouldDoHeavy else {
-            load = SystemMetrics.loadAverage()
-            return
+        if shouldDoHeavy {
+            if let memory = SystemMetrics.memoryInfo() {
+                memPercent = Double(memory.usedBytes) / Double(memory.totalBytes) * 100
+                memUsedText = format(memory.usedBytes) + " / " + format(memory.totalBytes)
+                swapText = "交换空间 " + format(memory.swapUsedBytes)
+            }
+            if let disk = SystemMetrics.diskInfo() {
+                diskPercent = Double(disk.usedBytes) / Double(disk.totalBytes) * 100
+                diskUsedText = "已用 " + format(disk.usedBytes)
+                diskFreeText = format(disk.totalBytes - disk.usedBytes)
+                previousDisk = disk
+            }
+
+            let now = Date()
+            let counters = SystemMetrics.networkBytes()
+            if let previous = previousNetwork, let previousTime = previousNetworkTime {
+                let seconds = max(0.5, now.timeIntervalSince(previousTime))
+                downRate = Double(counters.received &- previous.received) / seconds
+                upRate = Double(counters.sent &- previous.sent) / seconds
+            }
+            previousNetwork = counters
+            previousNetworkTime = now
+            netHistory = shift(netHistory, appending: downRate)
+            battery = SystemMetrics.battery()
         }
 
-        if let memory = SystemMetrics.memoryInfo() {
-            memPercent = Double(memory.usedBytes) / Double(memory.totalBytes) * 100
-            memUsedText = format(memory.usedBytes) + " / " + format(memory.totalBytes)
-            swapText = "交换空间 " + format(memory.swapUsedBytes)
+        // 进程列表最重(要起 ps 子进程):六秒一次,并放到后台线程,避免阻塞主线程。
+        if tick % 4 == 1 {
+            let procs = await Task.detached(priority: .utility) {
+                SystemMetrics.topProcesses()
+            }.value
+            processes = procs
         }
-        if let disk = SystemMetrics.diskInfo() {
-            diskPercent = Double(disk.usedBytes) / Double(disk.totalBytes) * 100
-            diskUsedText = "已用 " + format(disk.usedBytes)
-            diskFreeText = format(disk.totalBytes - disk.usedBytes)
-            previousDisk = disk
-        }
-
-        let now = Date()
-        let counters = SystemMetrics.networkBytes()
-        if let previous = previousNetwork, let previousTime = previousNetworkTime {
-            let seconds = max(0.5, now.timeIntervalSince(previousTime))
-            downRate = Double(counters.received &- previous.received) / seconds
-            upRate = Double(counters.sent &- previous.sent) / seconds
-        }
-        previousNetwork = counters
-        previousNetworkTime = now
-        netHistory = shift(netHistory, appending: downRate)
-
-        load = SystemMetrics.loadAverage()
-        battery = SystemMetrics.battery()
-        processes = SystemMetrics.topProcesses()
     }
 
     private func shift(_ history: [Double], appending value: Double) -> [Double] {

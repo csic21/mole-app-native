@@ -28,6 +28,12 @@ enum Tab: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     @State private var tab: Tab = .clean
+    // store 只在 ContentView 建一次:切回任意标签都直接渲染缓存,不会再触发重扫。
+    @StateObject private var cleanStore = CleanStore()
+    @StateObject private var appsStore = AppsStore()
+    @StateObject private var optimizeStore = OptimizeStore()
+    @StateObject private var analyzeStore = AnalyzeStore()
+    @StateObject private var statusStore = StatusStore()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,19 +48,18 @@ struct ContentView: View {
                     .id(tab)
             }
         }
-        .background(tab.background)
+        .background(tab.background.animation(.easeInOut(duration: 0.22), value: tab))
         .background(WindowConfigurator().frame(width: 0, height: 0))
-        .animation(.easeInOut(duration: 0.25), value: tab)
     }
 
     @ViewBuilder
     private var page: some View {
         switch tab {
-        case .clean: CleanPage()
-        case .apps: AppsPage()
-        case .optimize: OptimizePage()
-        case .analyze: AnalyzePage()
-        case .status: StatusPage()
+        case .clean: CleanPage(store: cleanStore)
+        case .apps: AppsPage(store: appsStore)
+        case .optimize: OptimizePage(store: optimizeStore)
+        case .analyze: AnalyzePage(store: analyzeStore)
+        case .status: StatusPage(store: statusStore)
         }
     }
 }

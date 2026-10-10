@@ -4,7 +4,7 @@ import SwiftUI
 struct AppsPage: View {
     private enum Sub: String, CaseIterable { case uninstall = "卸载", update = "更新", login = "启动项" }
 
-    @StateObject private var store = AppsStore()
+    @ObservedObject var store: AppsStore
     @State private var sub: Sub = .uninstall
     @State private var selected: Set<String> = []
     @State private var expanded: String?
@@ -69,7 +69,7 @@ struct AppsPage: View {
     }
 
     private var uninstallList: some View {
-        Group {
+        LazyVStack(spacing: 2) {
             if store.scanning {
                 scanningPlaceholder
             } else if apps.isEmpty {
@@ -79,34 +79,44 @@ struct AppsPage: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 60)
             } else {
-                ForEach(apps) { app in
-                    RowBox(selected: selected.contains(app.id)) {
-                        HStack(spacing: 12) {
-                            appIcon(app)
-                            Text(app.name)
-                                .font(.system(size: 13.5))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Text("\(app.version) · \(AppsStore.formatBytes(app.sizeBytes)) · \(app.modified)")
-                                .font(.system(size: 12.5))
-                                .foregroundStyle(Theme.dim2)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(AppsStore.formatBytes(app.sizeBytes))
-                                .font(Theme.mono)
-                                .foregroundStyle(Theme.dim2)
-                            CheckView(on: selected.contains(app.id)) { toggle(app.id) }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            expanded = expanded == app.id ? nil : app.id
-                            loadLeftoversIfNeeded(app)
-                        }
-                    }
+                Text("已安装 App \(apps.count) 个 · 大小测量 \(store.sizedCount)/\(apps.count)")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Theme.dim2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 10)
+                    .padding(.bottom, 6)
+            }
 
-                    if expanded == app.id {
-                        expandPanel(app)
+            // ForEach 直接挂在 LazyVStack 下:滚动时只渲染可见行。
+            ForEach(store.scanning || apps.isEmpty ? [] : apps) { app in
+                RowBox(selected: selected.contains(app.id)) {
+                    HStack(spacing: 12) {
+                        appIcon(app)
+                        Text(app.name)
+                            .font(.system(size: 13.5))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text("\(app.version) · \(AppsStore.formatBytes(app.sizeBytes)) · \(app.modified)")
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(Theme.dim2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(AppsStore.formatBytes(app.sizeBytes))
+                            .font(Theme.mono)
+                            .foregroundStyle(Theme.dim2)
+                        CheckView(on: selected.contains(app.id)) { toggle(app.id) }
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        expanded = expanded == app.id ? nil : app.id
+                        loadLeftoversIfNeeded(app)
                     }
                 }
 
+                if expanded == app.id {
+                    expandPanel(app)
+                }
+            }
+
+            if !store.scanning && !apps.isEmpty {
                 FootBar(note: footerNote) {
                     PillButton(title: "移除 \(selected.count) 项", disabled: selected.isEmpty) {
                         selected = []

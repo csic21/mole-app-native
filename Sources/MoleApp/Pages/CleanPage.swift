@@ -3,7 +3,7 @@ import SwiftUI
 struct CleanPage: View {
     private enum Phase { case scanning, result, list, trashing, done }
 
-    @StateObject private var store = CleanStore()
+    @ObservedObject var store: CleanStore
     @State private var phase: Phase = .scanning
     @State private var selected: Set<String> = []
     @State private var expanded: Set<String> = []

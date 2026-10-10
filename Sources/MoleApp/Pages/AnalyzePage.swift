@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct AnalyzePage: View {
-    @StateObject private var store = AnalyzeStore()
+    @ObservedObject var store: AnalyzeStore
     @State private var disk: SystemMetrics.DiskInfo?
 
     private let columns = [

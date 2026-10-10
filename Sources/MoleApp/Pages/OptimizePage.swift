@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct OptimizePage: View {
-    @StateObject private var store = OptimizeStore()
+    @ObservedObject var store: OptimizeStore
 
     private var doneCount: Int { store.states.filter { $0.status == .done }.count }
     private var skippedCount: Int { store.states.filter { $0.status == .skipped }.count }

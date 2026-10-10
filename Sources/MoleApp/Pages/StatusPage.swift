@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct StatusPage: View {
-    @StateObject private var store = StatusStore()
+    @ObservedObject var store: StatusStore
 
     private let columns = [
         GridItem(.flexible(), spacing: 10),
