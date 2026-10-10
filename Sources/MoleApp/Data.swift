@@ -49,35 +49,4 @@ enum MockData {
         .init(id: "t4", name: "内存异常报告", note: "清理旧诊断"),
         .init(id: "t5", name: "磁盘校验", note: "仅在需要时运行", skipNote: "待命 · 需要时手动"),
     ]
-
-    struct TreeNode: Identifiable {
-        let id: String
-        let name: String
-        let sizeText: String
-        let sizeMB: Double
-        let tone: Color
-        var children: [TreeNode] = []
-    }
-
-    static let root = TreeNode(
-        id: "root", name: "整个硬盘", sizeText: "438.45 GB", sizeMB: 448973, tone: Color(hex: 0x5A5348),
-        children: [
-            TreeNode(
-                id: "library", name: "Library", sizeText: "130.9 GB", sizeMB: 134042, tone: Color(hex: 0x5B4A42),
-                children: [
-                    TreeNode(id: "caches", name: "Caches", sizeText: "86.2 GB", sizeMB: 88269, tone: Color(hex: 0x5B4A42)),
-                    TreeNode(id: "containers", name: "Containers", sizeText: "22.4 GB", sizeMB: 22938, tone: Color(hex: 0x6B5A68)),
-                    TreeNode(id: "developer", name: "Developer", sizeText: "14.1 GB", sizeMB: 14438, tone: Color(hex: 0x6E5433)),
-                    TreeNode(id: "lib-other", name: "其他", sizeText: "8.2 GB", sizeMB: 8397, tone: Color(hex: 0x5A5566)),
-                ]
-            ),
-            TreeNode(id: "parallels", name: "Parallels", sizeText: "68.66 GB", sizeMB: 70308, tone: Color(hex: 0x8A6A3C)),
-            TreeNode(id: "www", name: "www", sizeText: "57.5 GB", sizeMB: 58880, tone: Color(hex: 0x8A4A34)),
-            TreeNode(id: "tart", name: ".tart", sizeText: "54.74 GB", sizeMB: 56054, tone: Color(hex: 0x6B5A68)),
-            TreeNode(id: "downloads", name: "Downloads", sizeText: "39.2 GB", sizeMB: 40141, tone: Color(hex: 0x6E5433)),
-            TreeNode(id: "codex", name: ".codex", sizeText: "26.32 GB", sizeMB: 26952, tone: Color(hex: 0x5A5566)),
-            TreeNode(id: "config", name: ".config", sizeText: "23.11 GB", sizeMB: 23665, tone: Color(hex: 0x6B5A68)),
-            TreeNode(id: "documents", name: "Documents", sizeText: "10.39 GB", sizeMB: 10639, tone: Color(hex: 0x5A5348)),
-        ]
-    )
 }
