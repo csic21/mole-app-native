@@ -63,16 +63,17 @@ struct BarView: View {
 }
 
 struct SparkView: View {
+    var values: [Double]
     var tone: Color = Color(hex: 0x8FD693)
-    private let heights: [Double] = (0..<42).map { 20 + Double(($0 * 37) % 60) }
 
     var body: some View {
+        let maxValue = max(values.max() ?? 1, 0.0001)
         HStack(alignment: .bottom, spacing: 2) {
-            ForEach(Array(heights.enumerated()), id: \.offset) { _, height in
+            ForEach(Array(values.enumerated()), id: \.offset) { _, value in
                 RoundedRectangle(cornerRadius: 2)
                     .fill(tone.opacity(0.55))
                     .frame(maxWidth: .infinity)
-                    .frame(height: height * 0.26 + 2)
+                    .frame(height: max(2, value / maxValue * 26))
             }
         }
         .frame(height: 26)
