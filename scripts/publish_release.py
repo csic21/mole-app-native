@@ -148,6 +148,13 @@ def main():
     published = api.api("/releases/" + str(release["id"]), method="PATCH", data={"draft": False})
     if published.get("draft") or published.get("tag_name") != "v" + version:
         raise ReleaseError("could not verify release publication")
+    # Draft asset URLs can contain an unpublished tag placeholder. Refresh after
+    # publication so the public verifier receives GitHub's final canonical URLs.
+    assets = api.api("/releases/" + str(release["id"]) + "/assets")
+    if (len(assets) != len(expected_sizes)
+            or {item["name"]: item["size"] for item in assets} != expected_sizes
+            or any(item.get("state") != "uploaded" for item in assets)):
+        raise ReleaseError("published release assets changed; release was left unchanged")
     (dist / "release-publication.json").write_text(json.dumps({
         "release_id": release["id"], "html_url": published["html_url"],
         "tag": "v" + version, "version": version, "source_sha": source,

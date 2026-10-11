@@ -1,0 +1,17 @@
+{
+  "version": "0.4.2",
+  "source_sha": "6a9deb58bc006ebfeef21be32165f4b92ad62276",
+  "architecture": "arm64",
+  "assets": [
+    {
+      "name": "Qili-0.4.2.zip",
+      "size": 3346474,
+      "sha256": "79aee41a16556a7ce617e99f5d251914fdc6feb7f0954508086fcea83419b52a"
+    },
+    {
+      "name": "Qili-0.4.2.zip.sha256",
+      "size": 81,
+      "sha256": "fca255876f5de6d8e5d5ae90ea74dba0bb76f42db9a0809c24f36a985fc80999"
+    }
+  ]
+}

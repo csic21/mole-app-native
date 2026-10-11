@@ -81,3 +81,28 @@ Mach-O and signature checks run on macOS; portable fixture ZIPs do not establish
 that a production binary is signed or runnable. Public download verification is
 intended for this public repository; private releases are not treated as publicly
 verified through an authenticated fallback.
+
+### Read-only verification recovery
+
+If publication succeeded but post-publication verification failed, leave the tag,
+release, and assets intact. The separate **Verify Published Release** workflow
+has only `contents: read`; its Python client uses anonymous GET requests only.
+It never publishes, replaces, deletes, or rolls back a release.
+
+A reviewed `.github/release-verification.json` pins the original package's
+version, vetted source SHA, architecture, and the names, sizes, and SHA-256 hashes
+of both uploaded assets. Obtain these values from the successful packaging logs
+and original publication metadata, not from an unverified replacement download.
+The recovery check verifies source reachability/version, the public tag and
+release identity, metadata hashes, then anonymously downloads both public assets
+and repeats bundle, resource, architecture, and ad-hoc signature checks. Its
+artifact contains the actual downloaded bytes and read-only recovery provenance.
+PR and main changes to that request, verifier, or workflow run verification;
+they do not activate the publishing workflow.
+
+For v0.4.2, the original Release run published correctly but its final check
+rejected stale draft-stage asset URLs in the local publication receipt. The
+publisher now refreshes asset metadata after publishing. The separate recovery
+request verifies the original v0.4.2 bytes without changing their vetted source
+or overwriting the public release. A later tooling-only main commit is therefore
+not a replacement source revision for v0.4.2.

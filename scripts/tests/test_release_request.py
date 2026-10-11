@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -6,13 +7,14 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import call, patch
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from release_request import ReleaseError, parse_request, resolve, validate_sha, validate_version, verify_source
-from publish_release import create_release, preflight, tag_commit
+from publish_release import create_release, main as publish_main, preflight, tag_commit
 from verify_release_artifact import inspect_zip
+from verify_published_release import validate_asset_url
 
 SHA = "a" * 40
 OTHER = "b" * 40
@@ -186,6 +188,58 @@ class PublicationSafetyTests(unittest.TestCase):
             def api(self, path, **kwargs):
                 return {"object": {"type": "tag", "sha": OTHER}} if path.startswith("/git/ref/") else {"object": {"type": "commit", "sha": SHA}}
         self.assertEqual(tag_commit(Annotated(), "v0.4.2"), SHA)
+
+
+class PublicationReceiptTests(unittest.TestCase):
+    @patch("publish_release.create_release")
+    @patch("publish_release.GitHub")
+    def test_receipt_refreshes_draft_urls_after_publication(self, github, create):
+        self.check_receipt(github, create, changed_after_publish=False)
+
+    @patch("publish_release.create_release")
+    @patch("publish_release.GitHub")
+    def test_changed_published_assets_fail_without_another_write(self, github, create):
+        self.check_receipt(github, create, changed_after_publish=True)
+
+    def check_receipt(self, github, create, changed_after_publish):
+        with tempfile.TemporaryDirectory() as directory:
+            dist = Path(directory)
+            archive = dist / "Qili-0.4.2.zip"
+            archive.write_bytes(b"fixture ZIP")
+            checksum = dist / (archive.name + ".sha256")
+            checksum.write_text(f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
+            (dist / "release-notes.md").write_text("Fixture notes")
+            manifest = dist / "manifest.json"
+            manifest.write_text(json.dumps({"version": "0.4.2", "source_sha": SHA, "mode": "request"}))
+            prefix = "https://github.com/owner/repo/releases/download/"
+            draft_assets = [{"name": path.name, "size": path.stat().st_size, "state": "uploaded",
+                             "browser_download_url": prefix + "untagged-draft/" + path.name}
+                            for path in [archive, checksum]]
+            final_assets = [{**asset, "browser_download_url": prefix + "v0.4.2/" + asset["name"]}
+                            for asset in draft_assets]
+            if changed_after_publish:
+                final_assets[0]["size"] += 1
+            create.return_value = {"id": 7, "tag_name": "v0.4.2", "draft": True}
+            api = github.return_value
+            api.api.side_effect = [draft_assets, {"object": {"type": "commit", "sha": SHA}},
+                                   {"draft": False, "tag_name": "v0.4.2", "html_url": "https://github.com/owner/repo/releases/tag/v0.4.2"},
+                                   final_assets]
+            with patch.dict(os.environ, {"GITHUB_REPOSITORY": "owner/repo", "GH_TOKEN": "fixture-only"}), \
+                 patch.object(sys, "argv", ["publish_release.py", "--manifest", str(manifest), "--dist", str(dist)]):
+                if changed_after_publish:
+                    with self.assertRaisesRegex(ReleaseError, "release was left unchanged"):
+                        publish_main()
+                    self.assertFalse((dist / "release-publication.json").exists())
+                else:
+                    publish_main()
+                    receipt = json.loads((dist / "release-publication.json").read_text())
+                    for asset in receipt["assets"]:
+                        validate_asset_url(asset["browser_download_url"], "owner/repo", "v0.4.2", asset["name"])
+                    self.assertEqual(receipt["assets"][0]["browser_download_url"], final_assets[0]["browser_download_url"])
+            self.assertEqual(api.api.call_args_list, [
+                call("/releases/7/assets"), call("/git/ref/tags/v0.4.2", optional=True),
+                call("/releases/7", method="PATCH", data={"draft": False}), call("/releases/7/assets")])
+            self.assertEqual(api.upload.call_count, 2)
 
 
 class ArtifactValidationTests(unittest.TestCase):

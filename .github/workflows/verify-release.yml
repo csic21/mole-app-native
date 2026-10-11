@@ -1,0 +1,38 @@
+name: Verify Published Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/release-verification.json'
+      - '.github/workflows/verify-release.yml'
+      - 'scripts/verify_existing_release.py'
+  pull_request:
+    paths:
+      - '.github/release-verification.json'
+      - '.github/workflows/verify-release.yml'
+      - 'scripts/verify_existing_release.py'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate release tooling
+        run: python3 -m unittest discover -s scripts/tests -p 'test_release_*.py'
+      - name: Verify existing public release without mutation
+        run: python3 scripts/verify_existing_release.py
+      - name: Upload actual public assets and verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Qili-release-verification
+          path: dist/public-verification/
+          if-no-files-found: error
+          retention-days: 7
