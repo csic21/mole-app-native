@@ -42,7 +42,7 @@ jobs:
           RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           mkdir -p "$RUNNER_TEMP/qili-release-tools"
-          cp scripts/{release_request,verify_release_artifact,publish_release,verify_published_release}.py "$RUNNER_TEMP/qili-release-tools/"
+          cp scripts/{release_request,verify_release_artifact,generate_appcast,publish_release,verify_published_release}.py "$RUNNER_TEMP/qili-release-tools/"
           python3 "$RUNNER_TEMP/qili-release-tools/release_request.py" --output "$RUNNER_TEMP/qili-release.json"
 
       - name: Reject existing release or conflicting tag
@@ -70,6 +70,14 @@ jobs:
           bash scripts/package_app.sh "$RELEASE_VERSION"
           python3 "$RUNNER_TEMP/qili-release-tools/verify_release_artifact.py" \
             --manifest "$RUNNER_TEMP/qili-release.json" --arch "$(uname -m)"
+
+      - name: Generate signed appcast
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          test -n "$SPARKLE_PRIVATE_KEY" || { echo "SPARKLE_PRIVATE_KEY secret is missing"; exit 1; }
+          python3 "$RUNNER_TEMP/qili-release-tools/generate_appcast.py" \
+            --manifest "$RUNNER_TEMP/qili-release.json"
 
       - name: Publish GitHub Release
         id: publish

@@ -9,12 +9,14 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
+import xml.etree.ElementTree as ET
 
 from release_request import ReleaseError, validate_sha, validate_version
-from verify_release_artifact import verify
+from verify_release_artifact import verify_dmg
 
 
 TRANSIENT_HTTP = {404, 429, 500, 502, 503, 504}
+SPARKLE_NAMESPACE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 
 
 def validate_asset_url(url, repository, tag, filename):
@@ -55,6 +57,27 @@ def download_public_asset(url, destination, expected_size, opener=urlopen, sleep
             sleep(2 ** (attempt + 1))
 
 
+def verify_appcast_binding(appcast_path, dmg_path, repository, tag, dmg_name):
+    """The downloaded appcast must describe exactly the downloaded DMG.
+
+    The EdDSA signature itself was verified against the DMG during generation;
+    byte-equality of both downloaded assets with the verified originals therefore
+    carries that binding through to the public download.
+    """
+    root = ET.parse(appcast_path).getroot()
+    items = root.findall("./channel/item")
+    if len(items) != 1:
+        raise ReleaseError("downloaded appcast must contain exactly one update item")
+    enclosure = items[0].find("enclosure")
+    expected_url = f"https://github.com/{repository}/releases/download/{tag}/{dmg_name}"
+    if enclosure is None or enclosure.get("url") != expected_url:
+        raise ReleaseError("downloaded appcast enclosure does not match the release DMG")
+    if int(enclosure.get("length", "0")) != dmg_path.stat().st_size:
+        raise ReleaseError("downloaded appcast length does not match the release DMG")
+    if not enclosure.get(f"{{{SPARKLE_NAMESPACE}}}edSignature"):
+        raise ReleaseError("downloaded appcast is missing the EdDSA signature")
+
+
 def verify_public(dist, expected_arch):
     receipt = json.loads((dist / "release-publication.json").read_text())
     version = validate_version(receipt["version"])
@@ -62,11 +85,13 @@ def verify_public(dist, expected_arch):
     tag = "v" + version
     if receipt["tag"] != tag:
         raise ReleaseError("publication receipt tag mismatch")
-    archive_name = f"Qili-{version}.zip"
-    checksum_name = archive_name + ".sha256"
+    dmg_name = f"Qili-{version}.dmg"
+    checksum_name = dmg_name + ".sha256"
+    appcast_name = "appcast.xml"
+    expected_names = {dmg_name, checksum_name, appcast_name}
     assets = receipt["assets"]
-    if len(assets) != 2 or {item["name"] for item in assets} != {archive_name, checksum_name}:
-        raise ReleaseError("publication receipt does not contain the two expected assets")
+    if len(assets) != 3 or {item["name"] for item in assets} != expected_names:
+        raise ReleaseError("publication receipt does not contain the three expected assets")
     output = dist / "public-verification"
     output.mkdir(parents=True, exist_ok=True)
     report = {"status": "started", "release_url": receipt["html_url"],
@@ -89,11 +114,14 @@ def verify_public(dist, expected_arch):
                 raise ReleaseError("public asset bytes differ from the locally verified original")
             report["assets"].append({"name": filename, "url": url, "size": asset["size"],
                                      "sha256": public_hash, "matches_original": True})
-        digest = verify(output / archive_name, version, expected_arch)
-        if (output / checksum_name).read_text() != f"{digest}  {archive_name}\n":
-            raise ReleaseError("downloaded SHA-256 sidecar does not match downloaded ZIP")
+        digest = verify_dmg(output / dmg_name, version, expected_arch)
+        if (output / checksum_name).read_text() != f"{digest}  {dmg_name}\n":
+            raise ReleaseError("downloaded SHA-256 sidecar does not match downloaded DMG")
+        verify_appcast_binding(output / appcast_name, output / dmg_name,
+                               receipt["repository"], tag, dmg_name)
         report.update(status="verified", app_version=version,
                       bundle_identifier="com.csic21.moleapp", signature="ad-hoc", notarized=False,
+                      sparkle_appcast="verified",
                       completed_at=datetime.now(timezone.utc).isoformat())
     except Exception as error:
         report.update(status="failed_after_publication", error=str(error),
@@ -101,7 +129,7 @@ def verify_public(dist, expected_arch):
         raise ReleaseError("post-publication download/app verification failed; release was left unchanged") from error
     finally:
         report_path.write_text(json.dumps(report, indent=2) + "\n")
-    print(f"Verified public {tag} ZIP, SHA-256, bundle/resources, Mach-O and ad-hoc signature")
+    print(f"Verified public {tag} DMG, SHA-256, appcast binding, bundle/resources, Mach-O and ad-hoc signature")
 
 
 def main():

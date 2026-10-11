@@ -14,6 +14,11 @@ struct MoleApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1220, height: 820)
         .windowResizability(.contentMinSize)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                Button("检查更新…") { AppUpdater.shared.checkForUpdates() }
+            }
+        }
     }
 }
 

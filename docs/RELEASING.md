@@ -27,23 +27,29 @@ It never force-updates tags, replaces a release, or overwrites release assets.
    commit, verifies that the source is on main and its version constant matches,
    then checks out **the requested source SHA**, not the request commit or a
    floating branch. It reruns tests and contrast checks and packages that source.
-5. The workflow verifies the ZIP's version, bundle identity, icon, SwiftPM logo
-   resources, executable mode, Mach-O architecture, and strict ad-hoc signature.
-   It writes a SHA-256 sidecar, atomically creates the version tag, uploads the ZIP
-   and checksum to a new draft release, checks asset names/sizes and tag identity,
-   and finally publishes the release. Notes identify the source revision,
-   architecture, checksum, and ad-hoc / not-notarized status.
-6. After publication the workflow downloads both assets from their public GitHub
-   `browser_download_url` **without an authorization header**. It compares their
-   bytes and SHA-256 against the verified originals, checks the downloaded sidecar,
-   and repeats ZIP, bundle/resource, Mach-O, and codesign verification on the public
-   download. Only transient availability/network failures are retried, up to six
-   attempts. A mismatch fails immediately and never republishes or rolls back.
-7. The `Qili-release-verification` Actions artifact contains the actual public ZIP,
-   checksum, and `provenance.json` with the source revision, URLs, observed hashes,
-   architecture, and verification result. Check that artifact and the published
-   tag before reporting publication complete. A post-publication check failure is
-   explicitly recorded as `failed_after_publication`; the release remains intact.
+5. The workflow verifies the DMG's drag-install layout (`/Applications` symlink),
+   the app's version, bundle identity, icon, SwiftPM logo resources, executable
+   mode, embedded Sparkle framework, update settings (`SUFeedURL`,
+   `SUPublicEDKey`), Mach-O architecture, and strict ad-hoc signature. It writes
+   a SHA-256 sidecar, then generates an EdDSA-signed Sparkle appcast from the
+   same DMG and verifies that appcast against the packaged bytes. It atomically
+   creates the version tag, uploads the DMG, checksum, and appcast to a new
+   draft release, checks asset names/sizes and tag identity, and finally
+   publishes the release. Notes identify the source revision, architecture,
+   checksum, and ad-hoc / not-notarized status.
+6. After publication the workflow downloads all three assets from their public
+   GitHub `browser_download_url` **without an authorization header**. It compares
+   their bytes and SHA-256 against the verified originals, checks the downloaded
+   sidecar, and repeats DMG, bundle/resource, Sparkle framework, Mach-O, codesign
+   and appcast-binding verification on the public download. Only transient
+   availability/network failures are retried, up to six attempts. A mismatch
+   fails immediately and never republishes or rolls back.
+7. The `Qili-release-verification` Actions artifact contains the actual public
+   DMG, checksum, appcast, and `provenance.json` with the source revision, URLs,
+   observed hashes, architecture, and verification result. Check that artifact
+   and the published tag before reporting publication complete. A
+   post-publication check failure is explicitly recorded as
+   `failed_after_publication`; the release remains intact.
 
 The request does not grant permission to skip the main CI and visual review gate.
 Only a subsequent change to the request path triggers this route again; unrelated
@@ -58,6 +64,26 @@ main pushes do not publish a release. Do not commit this example as a live reque
   vetted source SHA. Floating source refs are refused. It follows the same
   no-existing-tag rule as a request.
 - Runs are serialized, and a newer run does not cancel an in-progress release.
+
+## In-app updates (Sparkle)
+
+Published DMGs double as the Sparkle update payload. The feed lives at
+`https://github.com/csic21/mole-app-native/releases/latest/download/appcast.xml`
+and every release attaches its own `appcast.xml`.
+
+- The EdDSA **public** key is embedded in `scripts/package_app.sh`
+  (`SPARKLE_PUBLIC_ED_KEY`). Replacing it requires shipping a release signed
+  with the old key, per Sparkle's key rotation rules.
+- The EdDSA **private** key exists only in the maintainer's login keychain and
+  as the repository secret `SPARKLE_PRIVATE_KEY`. CI passes it to
+  `generate_appcast` / `sign_update` through stdin (`--ed-key-file -`); it is
+  never written to disk.
+- `generate_appcast` silently skips signing when the app's embedded public key
+  does not match the signing key. `scripts/generate_appcast.py` therefore
+  re-signs the DMG with `sign_update` and fails the release unless the appcast
+  signature and enclosure match the packaged bytes exactly.
+- Users on releases before 0.5.0 have no Sparkle and must install 0.5.0 (or
+  newer) once by hand; every later version updates itself in-app.
 
 ## Failure handling
 

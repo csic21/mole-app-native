@@ -126,20 +126,24 @@ def main():
         preflight(api, version, source, mode)
         return
     dist = Path(args.dist).resolve()
-    archive = dist / f"Qili-{validate_version(version)}.zip"
-    checksum = archive.with_name(archive.name + ".sha256")
-    expected = f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n"
+    dmg = dist / f"Qili-{validate_version(version)}.dmg"
+    checksum = dmg.with_name(dmg.name + ".sha256")
+    appcast = dist / "appcast.xml"
+    expected = f"{hashlib.sha256(dmg.read_bytes()).hexdigest()}  {dmg.name}\n"
     if checksum.read_text() != expected:
-        raise ReleaseError("ZIP changed after artifact verification")
+        raise ReleaseError("DMG changed after artifact verification")
+    if not appcast.is_file() or appcast.stat().st_size == 0:
+        raise ReleaseError("signed appcast is missing")
     release = create_release(api, version, source, mode, (dist / "release-notes.md").read_text())
     if release.get("tag_name") != "v" + version or release.get("draft") is not True:
         raise ReleaseError("new draft response did not match the intended release")
     # Upload by our newly created release id, never by an ambiguous tag lookup.
     # POST refuses duplicate names; there is deliberately no delete/overwrite path.
-    api.upload(release["id"], archive, "application/zip")
+    api.upload(release["id"], dmg, "application/x-apple-diskimage")
     api.upload(release["id"], checksum, "text/plain")
+    api.upload(release["id"], appcast, "application/xml")
     assets = api.api("/releases/" + str(release["id"]) + "/assets")
-    expected_sizes = {archive.name: archive.stat().st_size, checksum.name: checksum.stat().st_size}
+    expected_sizes = {path.name: path.stat().st_size for path in (dmg, checksum, appcast)}
     if ({item["name"]: item["size"] for item in assets} != expected_sizes
             or any(item.get("state") != "uploaded" for item in assets)):
         raise ReleaseError("uploaded release assets do not match the verified package")

@@ -204,25 +204,27 @@ class PublicationReceiptTests(unittest.TestCase):
     def check_receipt(self, github, create, changed_after_publish):
         with tempfile.TemporaryDirectory() as directory:
             dist = Path(directory)
-            archive = dist / "Qili-0.4.2.zip"
-            archive.write_bytes(b"fixture ZIP")
-            checksum = dist / (archive.name + ".sha256")
-            checksum.write_text(f"{hashlib.sha256(archive.read_bytes()).hexdigest()}  {archive.name}\n")
+            dmg = dist / "Qili-0.5.0.dmg"
+            dmg.write_bytes(b"fixture DMG")
+            checksum = dist / (dmg.name + ".sha256")
+            checksum.write_text(f"{hashlib.sha256(dmg.read_bytes()).hexdigest()}  {dmg.name}\n")
+            appcast = dist / "appcast.xml"
+            appcast.write_text('<rss version="2.0"><channel/></rss>')
             (dist / "release-notes.md").write_text("Fixture notes")
             manifest = dist / "manifest.json"
-            manifest.write_text(json.dumps({"version": "0.4.2", "source_sha": SHA, "mode": "request"}))
+            manifest.write_text(json.dumps({"version": "0.5.0", "source_sha": SHA, "mode": "request"}))
             prefix = "https://github.com/owner/repo/releases/download/"
             draft_assets = [{"name": path.name, "size": path.stat().st_size, "state": "uploaded",
                              "browser_download_url": prefix + "untagged-draft/" + path.name}
-                            for path in [archive, checksum]]
-            final_assets = [{**asset, "browser_download_url": prefix + "v0.4.2/" + asset["name"]}
+                            for path in [dmg, checksum, appcast]]
+            final_assets = [{**asset, "browser_download_url": prefix + "v0.5.0/" + asset["name"]}
                             for asset in draft_assets]
             if changed_after_publish:
                 final_assets[0]["size"] += 1
-            create.return_value = {"id": 7, "tag_name": "v0.4.2", "draft": True}
+            create.return_value = {"id": 7, "tag_name": "v0.5.0", "draft": True}
             api = github.return_value
             api.api.side_effect = [draft_assets, {"object": {"type": "commit", "sha": SHA}},
-                                   {"draft": False, "tag_name": "v0.4.2", "html_url": "https://github.com/owner/repo/releases/tag/v0.4.2"},
+                                   {"draft": False, "tag_name": "v0.5.0", "html_url": "https://github.com/owner/repo/releases/tag/v0.5.0"},
                                    final_assets]
             with patch.dict(os.environ, {"GITHUB_REPOSITORY": "owner/repo", "GH_TOKEN": "fixture-only"}), \
                  patch.object(sys, "argv", ["publish_release.py", "--manifest", str(manifest), "--dist", str(dist)]):
@@ -234,12 +236,12 @@ class PublicationReceiptTests(unittest.TestCase):
                     publish_main()
                     receipt = json.loads((dist / "release-publication.json").read_text())
                     for asset in receipt["assets"]:
-                        validate_asset_url(asset["browser_download_url"], "owner/repo", "v0.4.2", asset["name"])
+                        validate_asset_url(asset["browser_download_url"], "owner/repo", "v0.5.0", asset["name"])
                     self.assertEqual(receipt["assets"][0]["browser_download_url"], final_assets[0]["browser_download_url"])
             self.assertEqual(api.api.call_args_list, [
-                call("/releases/7/assets"), call("/git/ref/tags/v0.4.2", optional=True),
+                call("/releases/7/assets"), call("/git/ref/tags/v0.5.0", optional=True),
                 call("/releases/7", method="PATCH", data={"draft": False}), call("/releases/7/assets")])
-            self.assertEqual(api.upload.call_count, 2)
+            self.assertEqual(api.upload.call_count, 3)
 
 
 class ArtifactValidationTests(unittest.TestCase):

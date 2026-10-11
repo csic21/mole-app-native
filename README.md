@@ -13,21 +13,24 @@
 | 文件地图 | 文件夹选择、逐层测量、占比分布、卡片/列表、搜索、短期返回缓存；在访达中显示 | 此页不执行删除 |
 | 运行状态 | CPU / GPU / 内存 / 磁盘 / 网络 / 负载 / 电池及内存占用较高的进程 | 仅前台采样，硬件读取在后台线程；温度、风扇和电池指标随机型可用，无法读取时明确标注 |
 
-扫描与维护通过本机系统接口和命令完成。自我更新检查会请求本仓库的 GitHub Releases；
-应用更新检查还会访问相应更新来源。没有把本机文件内容上传到服务端的功能。
+扫描与维护通过本机系统接口和命令完成。应用内自动更新通过本仓库 GitHub Releases
+上的 Sparkle appcast 完成;应用更新检查还会访问相应更新来源。没有把本机文件内容
+上传到服务端的功能。
 
 ## 开发与打包
 
 ```bash
 swift run
-bash scripts/package_app.sh 0.4.3              # dist/Qili.app 与 dist/Qili-0.4.3.zip
-bash scripts/package_app.sh 0.4.3 .build/qili-preview
+bash scripts/package_app.sh 0.5.0              # dist/Qili.app 与 dist/Qili-0.5.0.dmg
+bash scripts/package_app.sh 0.5.0 .build/qili-preview
 ```
 
 也可用 Xcode 打开 `Package.swift`。内部 SwiftPM 目标仍叫 `MoleApp`，仓库 URL 和
 bundle identifier 保留以兼容已有构建与更新检查；产品显示名和发行包使用栖理 / Qili。
 
-下载包解压后，将 `Qili.app` 拖入应用程序。当前使用 ad-hoc 签名，尚未完成公证。
+发行包是 DMG:打开后把 `Qili.app` 拖入「应用程序」即可。应用内嵌 Sparkle,首次安装后
+会自动检查并直接安装后续版本。当前使用 ad-hoc 签名,尚未完成公证,首次打开需要右键
+选择「打开」。
 
 ## 验证与扫描基准
 
@@ -90,9 +93,10 @@ Pages 工作流仍使用现有仓库路径。下载与源码链接均指向本�
 
 ## 发布
 
-推送 main 或提交 PR 会构建应用；推送 `v*` 标签会生成 `Qili-<version>.zip` 并发布 GitHub Release。
-版本常量位于 `Sources/MoleApp/AppVersion.swift`，发版时应与标签一致。
-发布精确已验证提交、请求格式与安装包核验步骤见 [发布说明](docs/RELEASING.md)。
+推送 main 或提交 PR 会构建应用；推送 `v*` 标签会生成 `Qili-<version>.dmg` 与签名
+appcast 并发布 GitHub Release。版本常量位于 `Sources/MoleApp/AppVersion.swift`，
+发版时应与标签一致。发布精确已验证提交、请求格式、EdDSA 密钥管理与安装包核验步骤
+见 [发布说明](docs/RELEASING.md)。
 
 ## 来源与许可
 

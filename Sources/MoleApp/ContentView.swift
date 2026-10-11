@@ -45,12 +45,12 @@ struct ContentView: View {
     @StateObject private var optimizeStore = OptimizeStore()
     @StateObject private var analyzeStore = AnalyzeStore()
     @StateObject private var statusStore = StatusStore()
-    @StateObject private var selfUpdate = SelfUpdateStore()
+    @ObservedObject private var updater = AppUpdater.shared
 
     var body: some View {
         WorkspaceShell(tab: $tab,
-                       updateTitle: selfUpdate.updateAvailable ? selfUpdate.latestTag : nil,
-                       updateAction: { if let url = selfUpdate.releaseURL { NSWorkspace.shared.open(url) } },
+                       updateTitle: updater.availableVersion.map { "v\($0)" },
+                       updateAction: { updater.checkForUpdates() },
                        scrollKey: pageIdentity) {
             page
         } footer: {
@@ -59,7 +59,6 @@ struct ContentView: View {
             }
         }
         .background(WindowConfigurator().frame(width: 0, height: 0))
-        .task { selfUpdate.checkOnce() }
     }
 
     private var pageIdentity: String {

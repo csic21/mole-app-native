@@ -38,5 +38,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Qili-ci
-          path: dist/Qili-0.0.0-ci.zip
+          path: dist/Qili-0.0.0-ci.dmg
           retention-days: 7
