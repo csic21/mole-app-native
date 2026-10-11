@@ -248,12 +248,10 @@ final class DesignSnapshotTests: XCTestCase {
 
         let sizes = [NSSize(width: 1060, height: 680), NSSize(width: 1220, height: 820)]
         let scenes = makeScenes()
-        let contrastScenes = scenes.filter { $0.page == .clean && ["selection", "partial"].contains($0.scenario) }
         let processScenes = scenes.filter { $0.page == .status && $0.scenario == "metrics" }
-        let plans: [(scene: SnapshotScene, size: NSSize, increasedContrast: Bool, scrollToBottom: Bool)] =
-            sizes.flatMap { size in scenes.map { ($0, size, false, false) } }
-            + contrastScenes.map { ($0, sizes[0], true, false) }
-            + sizes.flatMap { size in processScenes.map { ($0, size, false, true) } }
+        let plans: [(scene: SnapshotScene, size: NSSize, scrollToBottom: Bool)] =
+            sizes.flatMap { size in scenes.map { ($0, size, false) } }
+            + sizes.flatMap { size in processScenes.map { ($0, size, true) } }
         var captures: [[String: Any]] = []
         for plan in plans {
             let fixture = plan.scene
@@ -270,11 +268,10 @@ final class DesignSnapshotTests: XCTestCase {
                 transaction.disablesAnimations = true
             }
 
-            let variant = plan.scrollToBottom ? "-process-table" : (plan.increasedContrast ? "-increased-contrast" : "")
+            let variant = plan.scrollToBottom ? "-process-table" : ""
             let name = "\(fixture.page.rawValue)-\(fixture.scenario)-\(Int(size.width))x\(Int(size.height))\(variant).png"
             let destination = output.appendingPathComponent(name)
-            let scrollOrigin = try capture(scene, size: size, increasedContrast: plan.increasedContrast,
-                                           scrollToBottom: plan.scrollToBottom, to: destination)
+            let scrollOrigin = try capture(scene, size: size, scrollToBottom: plan.scrollToBottom, to: destination)
             captures.append([
                 "file": name,
                 "page": fixture.page.rawValue,
@@ -283,8 +280,8 @@ final class DesignSnapshotTests: XCTestCase {
                 "width": Int(size.width),
                 "height": Int(size.height),
                 "scale": 1,
-                "contrast": plan.increasedContrast ? "increased" : "standard",
-                "appearance": plan.increasedContrast ? "accessibilityHighContrastDarkAqua" : "darkAqua",
+                "contrast": "standard",
+                "appearance": "darkAqua",
                 "viewport": plan.scrollToBottom ? "bottom-process-table" : "top",
                 "scrollOriginY": Double(scrollOrigin ?? 0),
             ])
@@ -296,6 +293,7 @@ final class DesignSnapshotTests: XCTestCase {
             "locale": "zh_CN",
             "timezone": "UTC",
             "captureCount": captures.count,
+            "increasedContrastVerified": false,
             "data": "Synthetic /QiliPreview fixtures; live operations disabled",
             "system": ProcessInfo.processInfo.operatingSystemVersionString,
             "note": "Native fonts and AppKit rendering vary with the macOS release. These are review captures, not cross-OS pixel baselines.",
@@ -303,7 +301,7 @@ final class DesignSnapshotTests: XCTestCase {
         ]
         try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
             .write(to: output.appendingPathComponent("manifest.json"), options: .atomic)
-        XCTAssertEqual(captures.count, 46)
+        XCTAssertEqual(captures.count, 44)
         XCTAssertEqual(Set(captures.compactMap { $0["page"] as? String }), Set(WorkspaceTab.allCases.map(\.rawValue)))
     }
 
@@ -347,8 +345,7 @@ final class DesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    private func capture<V: View>(_ root: V, size: NSSize, increasedContrast: Bool,
-                                  scrollToBottom: Bool, to destination: URL) throws -> CGFloat? {
+    private func capture<V: View>(_ root: V, size: NSSize, scrollToBottom: Bool, to destination: URL) throws -> CGFloat? {
         let window = SnapshotWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -359,7 +356,7 @@ final class DesignSnapshotTests: XCTestCase {
         window.title = "栖理"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.appearance = NSAppearance(named: increasedContrast ? .accessibilityHighContrastDarkAqua : .darkAqua)
+        window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = NSColor(Theme.canvas)
         window.isMovableByWindowBackground = true
         window.animationBehavior = .none

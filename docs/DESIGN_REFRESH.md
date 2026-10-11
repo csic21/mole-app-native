@@ -83,18 +83,19 @@ bitmap capture, including native window controls. It does not use HTML mockups o
 can omit AppKit-backed controls. All data is synthetic, rooted under `/QiliPreview`,
 and actions cannot perform live filesystem work. An explicit opt-in and output path
 are required. Captures use fixed 1060×680 and 1220×820 window sizes, a Chinese locale,
-dark Aqua, and two increased-contrast variants and two scrolled process-table views. Native progress indicators are paused
+dark Aqua, and two scrolled process-table views. Native progress indicators are paused
 for captures; these are review images, not a claim of pixel consistency across OS releases.
 
 Native compilation, existing safety regressions, fixture/outcome tests and PNG export
 must pass on macOS before acceptance. Portable source checks cannot establish a native
 build or visual result.
 
-The 46-image capture matrix covers cleanup initial, scanning, results, selection, empty,
+The 44-image capture matrix covers cleanup initial, scanning, results, selection, empty,
 inaccessible, moving, complete, partial and failed states; file-map list/cards/empty/error;
 status readings/unavailable metrics and the scrolled process table; app inventory/updates/
 startup items; and maintenance selection/results. Both window sizes use isolated synthetic
-fixtures. Interactive keyboard, VoiceOver and interruption flows still need manual review;
+fixtures. Native increased-contrast routing is not verified by these captures. Interactive keyboard,
+VoiceOver and interruption flows still need manual review;
 static images do not establish those behaviors.
 
 Manual acceptance checklist:
