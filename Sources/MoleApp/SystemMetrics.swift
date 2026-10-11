@@ -140,6 +140,187 @@ struct SystemMetrics {
         return (received, sent)
     }
 
+    // ---------------------------------------------------------- GPU(IOAccelerator)
+
+    static func gpuUsage() -> Double? {
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(
+            kIOMainPortDefault, IOServiceMatching("IOAccelerator"), &iterator
+        ) == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(iterator) }
+
+        var best: Double?
+        var service = IOIteratorNext(iterator)
+        while service != 0 {
+            var props: Unmanaged<CFMutableDictionary>?
+            if IORegistryEntryCreateCFProperties(service, &props, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+               let dict = props?.takeRetainedValue() as? [String: Any],
+               let perf = dict["PerformanceStatistics"] as? [String: Any] {
+                for key in ["Device Utilization %", "GPU Activity(%)", "Renderer Utilization %"] {
+                    if let value = perf[key] as? Int {
+                        best = max(best ?? 0, Double(value))
+                        break
+                    }
+                    if let value = perf[key] as? Double {
+                        best = max(best ?? 0, value)
+                        break
+                    }
+                }
+            }
+            IOObjectRelease(service)
+            service = IOIteratorNext(iterator)
+        }
+        return best
+    }
+
+    // ---------------------------------------------------------- SMC(温度 / 风扇,只读)
+
+    struct ThermalInfo {
+        var temperature: Double?
+        var fanRPM: Double?
+    }
+
+    final class SMCReader {
+        private var connection: io_connect_t = 0
+
+        init?() {
+            let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSMC"))
+            guard service != 0 else { return nil }
+            defer { IOObjectRelease(service) }
+            guard IOServiceOpen(service, mach_task_self_, 0, &connection) == KERN_SUCCESS else {
+                return nil
+            }
+        }
+
+        deinit {
+            if connection != 0 { IOServiceClose(connection) }
+        }
+
+        struct Reading {
+            let type: String
+            let bytes: [UInt8]
+        }
+
+        func read(_ name: String) -> Reading? {
+            var info = SMCKeyData()
+            var output = SMCKeyData()
+            info.key = Self.fourCC(name)
+            info.data8 = 9 // SMC_CMD_READ_KEYINFO
+            var outSize = MemoryLayout<SMCKeyData>.size
+            guard IOConnectCallStructMethod(
+                connection, 2, &info, MemoryLayout<SMCKeyData>.size, &output, &outSize
+            ) == KERN_SUCCESS, output.result == 0 else { return nil }
+
+            var request = SMCKeyData()
+            request.key = info.key
+            request.keyInfo.dataSize = output.keyInfo.dataSize
+            request.data8 = 5 // SMC_CMD_READ_BYTES
+            var bytesOut = SMCKeyData()
+            var bytesSize = MemoryLayout<SMCKeyData>.size
+            guard IOConnectCallStructMethod(
+                connection, 2, &request, MemoryLayout<SMCKeyData>.size, &bytesOut, &bytesSize
+            ) == KERN_SUCCESS, bytesOut.result == 0 else { return nil }
+
+            let raw = withUnsafeBytes(of: bytesOut.bytes) { Array($0) }
+            let size = min(Int(output.keyInfo.dataSize), raw.count)
+            let type = output.keyInfo.dataType
+            let typeString = String(bytes: [
+                UInt8((type >> 24) & 0xFF), UInt8((type >> 16) & 0xFF),
+                UInt8((type >> 8) & 0xFF), UInt8(type & 0xFF),
+            ], encoding: .ascii) ?? "?"
+            return Reading(type: typeString, bytes: Array(raw.prefix(size)))
+        }
+
+        /// flt:小端 Float32(Apple Silicon 的 TpXX 温度键在用)
+        func floatValue(_ name: String) -> Double? {
+            guard let reading = read(name), reading.type == "flt", reading.bytes.count == 4 else {
+                return nil
+            }
+            let b = reading.bytes
+            let bits = UInt32(b[0]) | UInt32(b[1]) << 8 | UInt32(b[2]) << 16 | UInt32(b[3]) << 24
+            return Double(Float(bitPattern: bits))
+        }
+
+        /// fpe2:大端 16 位除以 4(经典风扇键)
+        func fpe2Value(_ name: String) -> Double? {
+            guard let reading = read(name), reading.type == "fpe2", reading.bytes.count >= 2 else {
+                return nil
+            }
+            let raw = UInt16(reading.bytes[0]) << 8 | UInt16(reading.bytes[1])
+            return Double(raw) / 4.0
+        }
+
+        private static func fourCC(_ string: String) -> UInt32 {
+            var value: UInt32 = 0
+            for byte in string.utf8 { value = (value << 8) | UInt32(byte) }
+            return value
+        }
+    }
+
+    // SMC 结构按 C 头文件的字段顺序与类型排布,让内核按原布局读取。
+    struct SMCKeyDataVersion {
+        var major: UInt8 = 0
+        var minor: UInt8 = 0
+        var build: UInt8 = 0
+        var reserved: UInt8 = 0
+        var release: UInt16 = 0
+    }
+
+    struct SMCKeyDataPLimit {
+        var version: UInt16 = 0
+        var length: UInt16 = 0
+        var cpu: UInt32 = 0
+        var gpu: UInt32 = 0
+        var mem: UInt32 = 0
+    }
+
+    struct SMCKeyDataKeyInfo {
+        var dataSize: UInt32 = 0
+        var dataType: UInt32 = 0
+        var dataAttributes: UInt8 = 0
+        var pad: (UInt8, UInt8, UInt8) = (0, 0, 0)
+    }
+
+    struct SMCKeyData {
+        var key: UInt32 = 0
+        var vers = SMCKeyDataVersion()
+        var pLimit = SMCKeyDataPLimit()
+        var keyInfo = SMCKeyDataKeyInfo()
+        var result: UInt8 = 0
+        var status: UInt8 = 0
+        var data8: UInt8 = 0
+        var data32: UInt32 = 0
+        var bytes: (
+            UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
+            UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
+            UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8,
+            UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8, UInt8
+        ) = (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    }
+
+    static func thermalInfo() -> ThermalInfo {
+        guard let smc = SMCReader() else { return ThermalInfo() }
+        var temperature: Double?
+        for key in ["Tp09", "Tp0T", "Tp01", "Tp05", "Tp0P", "TC0P", "TC0D", "Te05"] {
+            if let value = smc.floatValue(key), value > 5, value < 120 {
+                temperature = value
+                break
+            }
+        }
+        var fan: Double?
+        for key in ["F0Ac", "F0Mn"] {
+            if let value = smc.fpe2Value(key), value >= 0, value < 20000 {
+                fan = value
+                break
+            }
+            if let value = smc.floatValue(key), value >= 0, value < 20000 {
+                fan = value
+                break
+            }
+        }
+        return ThermalInfo(temperature: temperature, fanRPM: fan)
+    }
+
     // ---------------------------------------------------------- 负载 / 芯片 / 电池
 
     static func loadAverage() -> [Double] {
@@ -226,9 +407,13 @@ final class StatusStore: ObservableObject {
     @Published private(set) var upRate = 0.0
     @Published private(set) var load: [Double] = [0, 0, 0]
     @Published private(set) var battery: (percent: Int, charging: Bool)?
+    @Published private(set) var gpu = 0.0
+    @Published private(set) var temperature: Double?
+    @Published private(set) var fanRPM: Double?
     @Published private(set) var processes: [RealProcess] = []
     @Published private(set) var cpuHistory: [Double] = Array(repeating: 0, count: 42)
     @Published private(set) var netHistory: [Double] = Array(repeating: 0, count: 42)
+    @Published private(set) var gpuHistory: [Double] = Array(repeating: 0, count: 42)
 
     let hostName: String = Host.current().localizedName ?? "Mac"
     let chip: String = SystemMetrics.sysctlString("machdep.cpu.brand_string") ?? "—"
@@ -339,6 +524,14 @@ final class StatusStore: ObservableObject {
             previousNetworkTime = now
             netHistory = shift(netHistory, appending: downRate)
             battery = SystemMetrics.battery()
+
+            if let gpuValue = SystemMetrics.gpuUsage() {
+                gpu = gpuValue
+            }
+            let thermal = SystemMetrics.thermalInfo()
+            temperature = thermal.temperature
+            fanRPM = thermal.fanRPM
+            gpuHistory = shift(gpuHistory, appending: gpu)
         }
 
         // 进程列表最重(要起 ps 子进程):六秒一次,并放到后台线程,避免阻塞主线程。

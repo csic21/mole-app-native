@@ -38,21 +38,19 @@ struct StatusPage: View {
     }
 
     private var cpuCard: some View {
-        StatCard(title: "▤ CPU", extra: "\(store.coreCount) 核") {
+        StatCard(title: "▤ CPU", extra: store.temperature.map { String(format: "%.0f°C", $0) } ?? "—") {
             Text("\(Int(store.cpu)) %").font(.system(size: 24))
             SparkView(values: store.cpuHistory)
-            Text("实时采样 · 每 1.5 秒")
+            Text("\(store.coreCount) 核 · 实时采样每 1.5 秒")
                 .font(.system(size: 12)).foregroundStyle(Theme.dim3)
         }
     }
 
     private var gpuCard: some View {
-        StatCard(title: "▤ GPU", extra: "—") {
-            Text("—").font(.system(size: 24))
-            RoundedRectangle(cornerRadius: 4)
-                .fill(Color.white.opacity(0.06))
-                .frame(height: 26)
-            Text("GPU 利用率需 IOKit 扩展,下一步接入")
+        StatCard(title: "▤ GPU", extra: "IOAccelerator") {
+            Text("\(Int(store.gpu)) %").font(.system(size: 24))
+            SparkView(values: store.gpuHistory, tone: Color(hex: 0xC4A0E0))
+            Text("统一内存架构 · 真实利用率")
                 .font(.system(size: 12)).foregroundStyle(Theme.dim3)
         }
     }
@@ -105,8 +103,13 @@ struct StatusPage: View {
             Text(String(format: "%.2f", store.load.first ?? 0)).font(.system(size: 24))
             Text(String(format: "5 分钟 %.2f · 15 分钟 %.2f", store.load.count > 1 ? store.load[1] : 0, store.load.count > 2 ? store.load[2] : 0))
                 .font(.system(size: 12)).foregroundStyle(Theme.dim2)
-            Text("风扇转速需 SMC,下一步接入")
-                .font(.system(size: 12)).foregroundStyle(Theme.dim3)
+            if let fan = store.fanRPM {
+                Text(String(format: "风扇 %.0f RPM", fan))
+                    .font(.system(size: 12)).foregroundStyle(Theme.dim3)
+            } else {
+                Text("此机型风扇不可读(无 SMC 键)")
+                    .font(.system(size: 12)).foregroundStyle(Theme.dim3)
+            }
         }
     }
 
