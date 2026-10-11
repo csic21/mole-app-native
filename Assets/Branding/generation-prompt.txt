@@ -1,0 +1,11 @@
+Generated with the built-in image_gen tool. Created under the historical working label MoleApp; now used by the independent Qili brand. Original prompt preserved below.
+
+Use case: logo-brand
+Asset type: production macOS app icon and in-app brand mark, square 1024 x 1024.
+Primary request: create one original, polished logo for MoleApp, a native macOS disk cleaning and system maintenance utility with a calm dark interface.
+Subject: a distinctive minimal front-facing mole head formed by one bold soft ivory silhouette; a low wide rounded head, two tiny dark eyes and a small warm terracotta nose, with subtle geometric paws or cheeks that suggest the letter M. A quietly clever, friendly utility identity; immediately legible at 22px.
+Scene/backdrop: dark navy (#1E2337) macOS-style rounded square tile, evenly inset approximately 10% from the square canvas. Everything outside the tile genuinely transparent. Keep the mole centered, occupying approximately 62% of the tile. The tile itself is opaque.
+Style/medium: restrained flat vector-like brand design, precise smooth curves, bold simple silhouette, minimal geometric features, premium desktop utility. Very subtle tonal depth on the tile only.
+Color palette: navy #1E2337, warm ivory #EFE8D8, terracotta #B65C3E, small warm peach #F2C078 highlight on nose if helpful.
+Text: none.
+Constraints: one single finished icon, no presentation sheet, no mockup, no lettering, no surrounding decoration, no gradients on the mole, no fur detail, no whiskers, no sparkle, no broom, no watermark, no existing brand logo; clean alpha edges.

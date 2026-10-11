@@ -7,7 +7,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "MoleApp",
-            path: "Sources/MoleApp"
+            path: "Sources/MoleApp",
+            resources: [.process("Resources")]
         ),
     ]
 )

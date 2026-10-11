@@ -4,10 +4,7 @@ struct StatusPage: View {
     @ObservedObject var store: StatusStore
 
     private let columns = [
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10),
+        GridItem(.adaptive(minimum: 210), spacing: 12),
     ]
 
     var body: some View {
@@ -29,16 +26,16 @@ struct StatusPage: View {
     }
 
     private var healthCard: some View {
-        StatCard(title: "✳ 健康度", extra: "\(store.chip) · \(store.memoryGB)GB · \(store.osVersion)") {
+        StatCard(title: "运行概况", extra: "\(store.chip) · \(store.memoryGB)GB · \(store.osVersion)") {
             Text("\(store.healthScore) \(store.healthText)").font(.system(size: 24))
-            Text("各项指标正常").font(.system(size: 12)).foregroundStyle(Theme.dim2)
+            Text("根据当前负载估算").font(.system(size: 12)).foregroundStyle(Theme.dim2)
             Text("已运行 \(store.uptimeText) · 自 \(store.bootDateText)")
                 .font(.system(size: 12)).foregroundStyle(Theme.dim3)
         }
     }
 
     private var cpuCard: some View {
-        StatCard(title: "▤ CPU", extra: store.temperature.map { String(format: "%.0f°C", $0) } ?? "—") {
+        StatCard(title: "CPU", extra: store.temperature.map { String(format: "%.0f°C", $0) } ?? "—") {
             Text("\(Int(store.cpu)) %").font(.system(size: 24))
             SparkView(values: store.cpuHistory)
             Text("\(store.coreCount) 核 · 实时采样每 1.5 秒")
@@ -47,7 +44,7 @@ struct StatusPage: View {
     }
 
     private var gpuCard: some View {
-        StatCard(title: "▤ GPU", extra: "IOAccelerator") {
+        StatCard(title: "GPU", extra: "利用率") {
             Text("\(Int(store.gpu)) %").font(.system(size: 24))
             SparkView(values: store.gpuHistory, tone: Color(hex: 0xC4A0E0))
             Text("统一内存架构 · 真实利用率")
@@ -56,7 +53,7 @@ struct StatusPage: View {
     }
 
     private var memCard: some View {
-        StatCard(title: "▤ 内存", extra: "压力 \(Int(store.memPercent))%") {
+        StatCard(title: "内存", extra: "压力 \(Int(store.memPercent))%") {
             Text("\(Int(store.memPercent)) %").font(.system(size: 24))
             BarView(value: store.memPercent)
             Text(store.memUsedText).font(.system(size: 12)).foregroundStyle(Theme.dim3)
@@ -64,7 +61,7 @@ struct StatusPage: View {
     }
 
     private var batteryCard: some View {
-        StatCard(title: "▮ 电池", extra: store.battery == nil ? "台式" : "接通电源") {
+        StatCard(title: "电池", extra: store.battery == nil ? "台式" : "接通电源") {
             if let battery = store.battery {
                 Text("\(battery.percent) %").font(.system(size: 24))
                 Text(battery.charging ? "电源供电 · 充电中" : "电池供电")
@@ -81,7 +78,7 @@ struct StatusPage: View {
     }
 
     private var diskCard: some View {
-        StatCard(title: "◔ 磁盘", extra: "根卷") {
+        StatCard(title: "磁盘", extra: "根卷") {
             Text(store.diskFreeText).font(.system(size: 24))
             BarView(value: store.diskPercent, warm: true)
             Text("\(store.diskUsedText) · \(Int(store.diskPercent))%")
@@ -90,7 +87,7 @@ struct StatusPage: View {
     }
 
     private var netCard: some View {
-        StatCard(title: "▷ 网络", extra: "全部接口") {
+        StatCard(title: "网络", extra: "全部接口") {
             Text(store.formatRate(store.downRate)).font(.system(size: 24))
             SparkView(values: store.netHistory, tone: Color(hex: 0x8FB6D6))
             Text("↑ \(store.formatRate(store.upRate))")
@@ -99,7 +96,7 @@ struct StatusPage: View {
     }
 
     private var loadCard: some View {
-        StatCard(title: "❋ 负载", extra: "\(store.coreCount) 核") {
+        StatCard(title: "负载", extra: "\(store.coreCount) 核") {
             Text(String(format: "%.2f", store.load.first ?? 0)).font(.system(size: 24))
             Text(String(format: "5 分钟 %.2f · 15 分钟 %.2f", store.load.count > 1 ? store.load[1] : 0, store.load.count > 2 ? store.load[2] : 0))
                 .font(.system(size: 12)).foregroundStyle(Theme.dim2)
@@ -185,8 +182,8 @@ struct StatCard<Content: View>: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .frame(height: 148, alignment: .top)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 14))
-        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.line))
+        .frame(height: 158, alignment: .top)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Theme.line))
     }
 }

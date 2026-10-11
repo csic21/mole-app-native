@@ -6,13 +6,13 @@ struct MoleApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup("栖理") {
             ContentView()
-                .frame(minWidth: 900, minHeight: 620)
+                .frame(minWidth: 1060, minHeight: 680)
                 .preferredColorScheme(.dark)
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 1120, height: 760)
+        .defaultSize(width: 1220, height: 820)
         .windowResizability(.contentMinSize)
     }
 }
@@ -20,6 +20,7 @@ struct MoleApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        NSApp.applicationIconImage = BrandAssets.appIcon
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.async {
             for window in NSApp.windows {

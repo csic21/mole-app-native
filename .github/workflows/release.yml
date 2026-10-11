@@ -39,6 +39,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${{ steps.version.outputs.tag }}" \
-            dist/MoleApp-*.zip \
+            dist/Qili-*.zip \
             --title "${{ steps.version.outputs.tag }}" \
             --generate-notes

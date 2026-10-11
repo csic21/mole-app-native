@@ -16,6 +16,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MoleApp-ci
-          path: dist/MoleApp-0.0.0-ci.zip
+          name: Qili-ci
+          path: dist/Qili-0.0.0-ci.zip
           retention-days: 7

@@ -5,99 +5,42 @@ struct AnalyzePage: View {
     @ObservedObject var store: AnalyzeStore
     @State private var disk: SystemMetrics.DiskInfo?
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 6),
-        GridItem(.flexible(), spacing: 6),
-        GridItem(.flexible(), spacing: 6),
-    ]
-
+    private let columns = [GridItem(.adaptive(minimum: 180), spacing: 10)]
     private let palette: [Color] = [
-        Color(hex: 0x5B4A42),
-        Color(hex: 0x8A4A34),
-        Color(hex: 0x6B5A68),
-        Color(hex: 0x8A6A3C),
-        Color(hex: 0x6E5433),
-        Color(hex: 0x5A5566),
-        Color(hex: 0x5A5348),
-        Color(hex: 0x4F5F6E),
+        Color(hex: 0x3B605A), Color(hex: 0x3C5465), Color(hex: 0x595B49),
+        Color(hex: 0x5B5148), Color(hex: 0x435A55), Color(hex: 0x4E5368),
     ]
 
     var body: some View {
-        HStack(alignment: .top, spacing: 18) {
-            side
-            VStack(alignment: .leading, spacing: 10) {
-                mapHead
-                tiles
-                FootBar(note: "点方块进入下一层 · 右键可在访达中显示") {
-                    PillButton(title: "返回上一层", disabled: store.path.count <= 1) {
-                        store.goUp()
-                    }
+        VStack(alignment: .leading, spacing: 20) {
+            HStack {
+                Image(systemName: "folder.fill").font(.system(size: 25)).foregroundStyle(Theme.accent)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("当前文件夹").font(.system(size: 12)).foregroundStyle(Theme.dim2)
+                    Text("\(store.items.count) 项，占用 \(store.totalText)")
+                        .font(.system(size: 19, weight: .semibold))
                 }
+                Spacer()
+                Button("重新测量") { store.rescan() }
+                    .buttonStyle(.plain).foregroundStyle(Theme.accent)
+                    .disabled(store.sizing)
+            }
+            .padding(20)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
+            mapHead
+            tiles
+            FootBar(note: "点文件夹继续查看；点文件在访达中显示。") {
+                PillButton(title: "返回上一层", disabled: store.path.count <= 1) { store.goUp() }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
         .task {
             disk = SystemMetrics.diskInfo()
-            if store.items.isEmpty && !store.sizing {
-                store.rescan()
-            }
-        }
-    }
-
-    private var side: some View {
-        VStack(spacing: 6) {
-            JupiterView()
-                .padding(.top, 4)
-                .padding(.bottom, 6)
-            Text("\(store.items.count) 项 · \(store.totalText)")
-                .font(.system(size: 13))
-            Text("当前目录")
-                .font(.system(size: 11.5))
-                .foregroundStyle(Theme.dim3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 8)
-            ForEach(store.items) { item in
-                Button {
-                    enterOrReveal(item)
-                } label: {
-                    HStack(spacing: 8) {
-                        Text(item.name)
-                            .font(.system(size: 13))
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        if let size = item.sizeBytes {
-                            Text(AppsStore.formatBytes(size)).font(Theme.mono).foregroundStyle(Theme.dim2)
-                        } else {
-                            ProgressView().controlSize(.mini)
-                        }
-                        Text(item.isDirectory ? "›" : "").foregroundStyle(Theme.dim3)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 7)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .contextMenu {
-                    Button("在访达中显示") {
-                        NSWorkspace.shared.activateFileViewerSelecting([item.url])
-                    }
-                }
-            }
-            Spacer(minLength: 12)
-            Text("右键可打开或移到废纸篓")
-                .font(.system(size: 11))
-                .foregroundStyle(Theme.dim3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .frame(width: 248)
-        .padding(.trailing, 12)
-        .overlay(alignment: .trailing) {
-            Rectangle().fill(Theme.line).frame(width: 1)
+            if store.items.isEmpty && !store.sizing { store.rescan() }
         }
     }
 
     private var mapHead: some View {
-        HStack {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 0) {
                 ForEach(Array(store.path.enumerated()), id: \.offset) { index, url in
                     if index > 0 { Text(" › ").foregroundStyle(Theme.dim3) }
@@ -109,7 +52,6 @@ struct AnalyzePage: View {
                 }
             }
             .font(.system(size: 12.5))
-            Spacer()
             if let disk {
                 Text("文件 \(store.totalText) · 已用 \(AppsStore.formatBytes(Int64(disk.usedBytes)))/\(AppsStore.formatBytes(Int64(disk.totalBytes)))")
                     .font(Theme.mono)
@@ -126,7 +68,7 @@ struct AnalyzePage: View {
                     enterOrReveal(item)
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("▸ \(item.name)")
+                        Label(item.name, systemImage: item.isDirectory ? "folder" : "doc")
                             .font(.system(size: 12.5, weight: .semibold))
                             .lineLimit(1)
                         if let size = item.sizeBytes {
@@ -167,32 +109,5 @@ struct AnalyzePage: View {
     private func displayName(for url: URL, isHome: Bool) -> String {
         if isHome { return "~" }
         return url.lastPathComponent
-    }
-}
-
-struct JupiterView: View {
-    var size: CGFloat = 74
-
-    var body: some View {
-        ZStack {
-            Circle().fill(
-                LinearGradient(
-                    colors: [Color(hex: 0xD9B184), Color(hex: 0xB98A5C), Color(hex: 0xE2C39A), Color(hex: 0xA97A4E)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
-            Circle().fill(
-                RadialGradient(
-                    colors: [.white.opacity(0.3), .clear],
-                    center: UnitPoint(x: 0.32, y: 0.28),
-                    startRadius: 2,
-                    endRadius: size * 0.6
-                )
-            )
-        }
-        .frame(width: size, height: size)
-        .clipShape(Circle())
-        .overlay(Circle().strokeBorder(.black.opacity(0.25), lineWidth: 6).blur(radius: 4))
     }
 }

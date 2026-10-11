@@ -32,6 +32,8 @@ struct CleanPage: View {
         .task {
             if store.categories.isEmpty {
                 store.scan()
+            } else if !store.scanning && phase == .scanning {
+                phase = .result
             }
         }
         .onChange(of: store.scanning) { _, scanning in
@@ -63,28 +65,56 @@ struct CleanPage: View {
     }
 
     private var resultView: some View {
-        VStack(spacing: 0) {
-            EarthView()
-            Text("共 \(AppsStore.formatBytes(totalBytes))").font(.system(size: 27)).padding(.top, 46)
-            HStack(spacing: 4) {
-                Text("\(totalItems) 项 \(store.categories.count) 类 ·").foregroundStyle(Theme.dim3)
-                Button("重新扫描") { rescan() }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(Theme.dim2)
-                    .underline()
+        VStack(alignment: .leading, spacing: 24) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("可以整理的空间").font(.system(size: 13)).foregroundStyle(Theme.dim2)
+                    Text(AppsStore.formatBytes(totalBytes))
+                        .font(.system(size: 44, weight: .semibold, design: .rounded))
+                    Text("\(totalItems) 个目录，分布在 \(store.categories.count) 个分类")
+                        .font(.system(size: 13)).foregroundStyle(Theme.dim2)
+                }
+                Spacer()
+                Image(systemName: "tray.2.fill")
+                    .font(.system(size: 38, weight: .light))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 92, height: 92)
+                    .background(Theme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 18))
             }
-            .font(.system(size: 12.5))
-            .padding(.top, 6)
-            .padding(.bottom, 22)
-            PillButton(title: "查看结果", disabled: totalBytes == 0) { phase = .list }
-            if totalBytes == 0 {
-                Text("没有找到可清理项,这台机器很干净")
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(Theme.dim3)
-                    .padding(.top, 12)
+            .padding(26)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
+
+            Text("空间分布").font(.system(size: 16, weight: .semibold))
+            VStack(spacing: 8) {
+                ForEach(store.categories) { category in
+                    Button { phase = .list } label: {
+                        HStack(spacing: 20) {
+                            Image(systemName: "folder").foregroundStyle(Theme.accent)
+                            VStack(alignment: .leading, spacing: 5) {
+                                Text(category.title).font(.system(size: 14, weight: .medium))
+                                Text(category.note).font(.system(size: 12)).foregroundStyle(Theme.dim2)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            BarView(value: totalBytes > 0 ? Double(category.sizeBytes) / Double(totalBytes) * 100 : 0)
+                                .frame(width: 110)
+                            Text(AppsStore.formatBytes(category.sizeBytes))
+                                .font(Theme.mono).frame(width: 80, alignment: .trailing)
+                            Image(systemName: "chevron.right").font(.system(size: 10)).foregroundStyle(Theme.dim3)
+                        }
+                        .padding(18)
+                        .background(Theme.card, in: RoundedRectangle(cornerRadius: 8))
+                        .contentShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            FootBar(note: totalBytes == 0 ? "没有找到可清理项。" : "查看明细后勾选；确认后移到废纸篓。") {
+                HStack(spacing: 18) {
+                    Button("重新扫描") { rescan() }.buttonStyle(.plain).foregroundStyle(Theme.dim2)
+                    PillButton(title: "查看整理清单", disabled: totalBytes == 0) { phase = .list }
+                }
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 520)
     }
 
     private var listView: some View {
@@ -94,9 +124,9 @@ struct CleanPage: View {
                     .font(.system(size: 12.5))
                     .padding(.horizontal, 13)
                     .padding(.vertical, 5)
-                    .background(Color(hex: 0xEFE8D8, opacity: 0.12), in: Capsule())
+                    .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
                 Spacer()
-                Text("真实路径 · 只会移到废纸篓")
+                Text("确认后移到废纸篓，可恢复")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.dim3)
             }
@@ -177,20 +207,11 @@ struct CleanPage: View {
 
     private var doneView: some View {
         VStack(spacing: 0) {
-            ZStack {
-                Circle().fill(
-                    RadialGradient(
-                        colors: [Color(hex: 0x3F7D43), Color(hex: 0x2C5C33)],
-                        center: UnitPoint(x: 0.34, y: 0.3),
-                        startRadius: 4,
-                        endRadius: 110
-                    )
-                )
-                Image(systemName: "checkmark")
-                    .font(.system(size: 52, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.92))
-            }
-            .frame(width: 150, height: 150)
+            Image(systemName: "checkmark.seal.fill")
+                .font(.system(size: 54))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 100, height: 100)
+                .background(Theme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 18))
             Text("已释放 \(AppsStore.formatBytes(result?.freedBytes ?? 0))")
                 .font(.system(size: 27))
                 .padding(.top, 46)
@@ -237,42 +258,5 @@ struct CleanPage: View {
             store.scan()
             phase = .done
         }
-    }
-}
-
-struct EarthView: View {
-    var body: some View {
-        ZStack {
-            Circle().fill(
-                RadialGradient(
-                    colors: [Color(hex: 0x4A7CAE), Color(hex: 0x2F5C86), Color(hex: 0x234566)],
-                    center: UnitPoint(x: 0.3, y: 0.28),
-                    startRadius: 6,
-                    endRadius: 150
-                )
-            )
-            Circle().fill(Color(hex: 0x3F7D43)).frame(width: 74).offset(x: 30, y: -20).blur(radius: 3)
-            Circle().fill(Color(hex: 0x4D8F52)).frame(width: 54).offset(x: -24, y: 36).blur(radius: 3)
-            Circle().fill(Color(hex: 0x4A8A52)).frame(width: 60).offset(x: -32, y: -30).blur(radius: 3)
-            Circle().fill(
-                RadialGradient(
-                    colors: [.white.opacity(0.26), .clear],
-                    center: UnitPoint(x: 0.28, y: 0.26),
-                    startRadius: 2,
-                    endRadius: 90
-                )
-            )
-        }
-        .frame(width: 190, height: 190)
-        .clipShape(Circle())
-        .overlay(
-            Circle().strokeBorder(
-                LinearGradient(colors: [.clear, .black.opacity(0.4)], startPoint: .topLeading, endPoint: .bottomTrailing),
-                lineWidth: 16
-            )
-            .blur(radius: 8)
-        )
-        .shadow(color: .black.opacity(0.5), radius: 26, y: 22)
-        .padding(.top, 40)
     }
 }

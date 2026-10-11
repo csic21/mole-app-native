@@ -10,12 +10,12 @@ struct CheckView: View {
         } label: {
             ZStack {
                 RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(Color(hex: 0xEFE8D8, opacity: 0.35), lineWidth: 1.5)
+                    .strokeBorder(Theme.dim3, lineWidth: 1.5)
                 if on {
                     RoundedRectangle(cornerRadius: 5).fill(Theme.accent)
                     Image(systemName: "checkmark")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Theme.sidebar)
                 }
             }
             .frame(width: 16, height: 16)
@@ -37,7 +37,7 @@ struct BarView: View {
                 Capsule()
                     .fill(
                         LinearGradient(
-                            colors: warm ? [Color(hex: 0xC89A6B), Color(hex: 0xB65C3E)] : [Color(hex: 0x8B7CF0), Color(hex: 0x4F7FA8)],
+                            colors: warm ? [Theme.warm, Color(hex: 0xC49367)] : [Theme.accent, Color(hex: 0x699DA7)],
                             startPoint: .leading,
                             endPoint: .trailing
                         )
@@ -80,8 +80,8 @@ struct PillButton: View {
                 .padding(.horizontal, 26)
         }
         .buttonStyle(.plain)
-        .background(Color(hex: 0xF2EEE3), in: Capsule())
-        .foregroundStyle(Color(hex: 0x17181B))
+        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 7))
+        .foregroundStyle(Theme.sidebar)
         .opacity(disabled ? 0.45 : 1)
         .disabled(disabled)
     }
@@ -94,11 +94,11 @@ struct RowBox<Content: View>: View {
 
     var body: some View {
         content
-            .padding(.horizontal, 10)
-            .padding(.vertical, 9)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 13)
             .background(
-                selected ? Theme.cardHover : (hover ? Theme.card : Color.clear),
-                in: RoundedRectangle(cornerRadius: 10)
+                selected || hover ? Theme.cardHover : Theme.card,
+                in: RoundedRectangle(cornerRadius: 8)
             )
             .contentShape(RoundedRectangle(cornerRadius: 10))
             .onHover { hover = $0 }
@@ -145,7 +145,7 @@ struct Chip: View {
         case .plain: Color.white.opacity(0.08)
         case .done: Color(hex: 0x68C46B, opacity: 0.16)
         case .skip: Color(hex: 0xE28E60, opacity: 0.16)
-        case .running: Color(hex: 0x8B7CF0, opacity: 0.18)
+        case .running: Theme.accent.opacity(0.18)
         case .failed: Color(hex: 0xE05C5C, opacity: 0.16)
         }
     }
@@ -155,7 +155,7 @@ struct Chip: View {
         case .plain: Theme.dim2
         case .done: Color(hex: 0x8FD693)
         case .skip: Color(hex: 0xE8A97F)
-        case .running: Color(hex: 0xB3A8F5)
+        case .running: Theme.accent
         case .failed: Color(hex: 0xF09090)
         }
     }

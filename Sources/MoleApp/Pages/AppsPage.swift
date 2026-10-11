@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct AppsPage: View {
-    private enum Sub: String, CaseIterable { case uninstall = "卸载", update = "更新", login = "启动项" }
+    private enum Sub: String, CaseIterable { case uninstall = "应用清单", update = "更新", login = "启动项" }
 
     @ObservedObject var store: AppsStore
     @ObservedObject var loginStore: LoginItemsStore
@@ -46,8 +46,8 @@ struct AppsPage: View {
                     .padding(.horizontal, 13)
                     .padding(.vertical, 5)
                     .background(
-                        sub == item ? Color(hex: 0xEFE8D8, opacity: 0.12) : .clear,
-                        in: Capsule()
+                        sub == item ? Theme.accent.opacity(0.12) : .clear,
+                        in: RoundedRectangle(cornerRadius: 6)
                     )
                     .foregroundStyle(sub == item ? Theme.star : Theme.dim2)
             }
@@ -120,7 +120,7 @@ struct AppsPage: View {
 
             if !store.scanning && !apps.isEmpty {
                 FootBar(note: footerNote) {
-                    PillButton(title: "移除 \(selected.count) 项", disabled: selected.isEmpty) {
+                    PillButton(title: "取消选择", disabled: selected.isEmpty) {
                         selected = []
                         expanded = nil
                     }
@@ -157,7 +157,7 @@ struct AppsPage: View {
 
     private var footerNote: String {
         let sizeText = selectedBytes > 0 ? AppsStore.formatBytes(selectedBytes) : "大小测量中"
-        return "\(selected.count) 个 App · \(sizeText) — 真实删除将在下一步接入"
+        return "\(selected.count) 个 App · \(sizeText) · 可查看关联文件；暂不执行卸载"
     }
 
     private func expandPanel(_ app: ScannedApp) -> some View {
@@ -242,7 +242,7 @@ struct AppsPage: View {
         }
     }
 
-    // ---------------------------------------------------------- 更新 / 启动项(示意,下一步接真实来源)
+    // ---------------------------------------------------------- 更新检查与启动项管理
 
     private var updateList: some View {
         LazyVStack(spacing: 2) {
@@ -281,7 +281,7 @@ struct AppsPage: View {
                             .font(.system(size: 10.5))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 2)
-                            .background(Color.white.opacity(0.08), in: Capsule())
+                            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
                             .foregroundStyle(Theme.dim3)
                         Text("\(info.from) → \(info.to)")
                             .font(Theme.monoSmall)
@@ -304,7 +304,7 @@ struct AppsPage: View {
                                 .font(.system(size: 12))
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 6)
-                                .background(Color(hex: 0xEFE8D8, opacity: 0.9), in: Capsule())
+                                .background(Theme.accent, in: RoundedRectangle(cornerRadius: 6))
                                 .foregroundStyle(Color(hex: 0x17181B))
                         }
                         .buttonStyle(.plain)
@@ -382,7 +382,7 @@ struct AppsPage: View {
                                 .font(.system(size: 10.5))
                                 .padding(.horizontal, 7)
                                 .padding(.vertical, 2)
-                                .background(Color.white.opacity(0.08), in: Capsule())
+                                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6))
                                 .foregroundStyle(Theme.dim3)
                         }
                         .frame(width: 330, alignment: .leading)

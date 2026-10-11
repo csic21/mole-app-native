@@ -3,33 +3,41 @@ import SwiftUI
 
 enum Tab: String, CaseIterable, Identifiable {
     case clean, apps, optimize, analyze, status
-
     var id: String { rawValue }
 
     var label: String {
         switch self {
-        case .clean: "清理"
-        case .apps: "软件"
-        case .optimize: "优化"
-        case .analyze: "分析"
-        case .status: "状态"
+        case .clean: "空间整理"
+        case .apps: "应用管理"
+        case .optimize: "系统维护"
+        case .analyze: "文件地图"
+        case .status: "运行状态"
         }
     }
 
-    var background: Color {
+    var symbol: String {
         switch self {
-        case .clean: Theme.windowClean
-        case .apps: Theme.windowApps
-        case .optimize: Theme.windowOptimize
-        case .analyze: Theme.windowAnalyze
-        case .status: Theme.windowStatus
+        case .clean: "tray.2"
+        case .apps: "square.stack.3d.up"
+        case .optimize: "slider.horizontal.3"
+        case .analyze: "folder.badge.gearshape"
+        case .status: "waveform.path.ecg"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .clean: "看清占用，再决定哪些可以离开。"
+        case .apps: "应用、更新与启动项，集中打理。"
+        case .optimize: "按需运行维护任务，每一步都有记录。"
+        case .analyze: "沿着文件夹找出空间去了哪里。"
+        case .status: "观察此刻的负载，让数字说明状态。"
         }
     }
 }
 
 struct ContentView: View {
     @State private var tab: Tab = .clean
-    // store 只在 ContentView 建一次:切回任意标签都直接渲染缓存,不会再触发重扫。
     @StateObject private var cleanStore = CleanStore()
     @StateObject private var appsStore = AppsStore()
     @StateObject private var loginStore = LoginItemsStore()
@@ -40,23 +48,36 @@ struct ContentView: View {
     @StateObject private var selfUpdate = SelfUpdateStore()
 
     var body: some View {
-        VStack(spacing: 0) {
-            TopBar(tab: $tab, selfUpdate: selfUpdate)
-            ScrollView {
-                page
-                    .padding(.horizontal, 30)
-                    .padding(.top, 6)
-                    .padding(.bottom, 36)
-                    .frame(maxWidth: 980)
-                    .frame(maxWidth: .infinity)
-                    .id(tab)
+        HStack(spacing: 0) {
+            Sidebar(tab: $tab, selfUpdate: selfUpdate)
+            VStack(spacing: 0) {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(tab.label).font(.system(size: 25, weight: .semibold))
+                        Text(tab.detail).font(.system(size: 13)).foregroundStyle(Theme.dim2)
+                    }
+                    Spacer()
+                    Label("本机工作台", systemImage: "desktopcomputer")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Theme.dim2)
+                }
+                .padding(.horizontal, 30)
+                .padding(.top, 34)
+                .padding(.bottom, 24)
+                .background(Theme.surface)
+
+                ScrollView {
+                    page
+                        .padding(26)
+                        .frame(maxWidth: 1080)
+                        .frame(maxWidth: .infinity)
+                }
             }
+            .background(Theme.canvas)
         }
-        .background(tab.background.animation(.easeInOut(duration: 0.22), value: tab))
+        .foregroundStyle(Theme.star)
         .background(WindowConfigurator().frame(width: 0, height: 0))
-        .task {
-            selfUpdate.checkOnce()
-        }
+        .task { selfUpdate.checkOnce() }
     }
 
     @ViewBuilder
@@ -71,79 +92,80 @@ struct ContentView: View {
     }
 }
 
-struct TopBar: View {
+private struct Sidebar: View {
     @Binding var tab: Tab
     @ObservedObject var selfUpdate: SelfUpdateStore
 
     var body: some View {
-        ZStack {
-            HStack(spacing: 4) {
-                LogoView()
-                ForEach(Tab.allCases) { item in
-                    Button {
-                        tab = item
-                    } label: {
-                        Text(item.label)
-                            .font(.system(size: 13))
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 6)
-                            .background(
-                                item == tab ? Color(hex: 0xEEE9DE, opacity: 0.94) : .clear,
-                                in: Capsule()
-                            )
-                            .foregroundStyle(item == tab ? Color(hex: 0x17181B) : Theme.dim2)
-                    }
-                    .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                LogoView(size: 44)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("栖理").font(.system(size: 21, weight: .semibold))
+                    Text("Qili").font(.system(size: 12)).foregroundStyle(Theme.dim2)
                 }
             }
-            .padding(4)
-            .background(Color.white.opacity(0.06), in: Capsule())
+            .padding(.bottom, 38)
 
-            HStack {
-                Spacer()
-                if selfUpdate.updateAvailable, let tag = selfUpdate.latestTag {
-                    Button {
-                        if let url = selfUpdate.releaseURL {
-                            NSWorkspace.shared.open(url)
+            Text("我的 Mac")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(Theme.dim3)
+                .padding(.leading, 12)
+                .padding(.bottom, 12)
+
+            ForEach(Tab.allCases) { item in
+                Button { tab = item } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: item.symbol).frame(width: 20)
+                        Text(item.label).font(.system(size: 13, weight: tab == item ? .semibold : .regular))
+                        Spacer(minLength: 0)
+                        if tab == item {
+                            RoundedRectangle(cornerRadius: 2).fill(Theme.accent).frame(width: 3, height: 16)
                         }
-                    } label: {
-                        Text("↑ 新版本 \(tag)")
-                            .font(.system(size: 11.5, weight: .medium))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(Color(hex: 0x68C46B, opacity: 0.18), in: Capsule())
-                            .foregroundStyle(Color(hex: 0x8FD693))
                     }
-                    .buttonStyle(.plain)
-                    .help("打开 GitHub Releases 下载新版本")
-                } else {
-                    Text("v\(AppVersion.current) · 研究版")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(Theme.dim3)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 13)
+                    .foregroundStyle(tab == item ? Theme.star : Theme.dim2)
+                    .background(tab == item ? Theme.accent.opacity(0.13) : .clear, in: RoundedRectangle(cornerRadius: 8))
+                    .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(tab == item ? [.isSelected] : [])
+                .padding(.bottom, 5)
             }
+            Spacer(minLength: 24)
+            Divider().overlay(Theme.line).padding(.bottom, 18)
+            if selfUpdate.updateAvailable, let tag = selfUpdate.latestTag {
+                Button {
+                    if let url = selfUpdate.releaseURL { NSWorkspace.shared.open(url) }
+                } label: {
+                    Label("下载更新 \(tag)", systemImage: "arrow.down.circle")
+                        .font(.system(size: 12)).foregroundStyle(Theme.accent)
+                }
+                .buttonStyle(.plain)
+                .padding(.bottom, 10)
+            }
+            Text("栖理 v\(AppVersion.current)").font(.system(size: 11.5)).foregroundStyle(Theme.dim2)
+            Text("给文件留位置，给工作留余地。")
+                .font(.system(size: 10.5)).foregroundStyle(Theme.dim3).padding(.top, 6)
         }
-        .padding(.leading, 84)
-        .padding(.trailing, 18)
-        .frame(height: 54)
-        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 16)
+        .padding(.top, 52)
+        .padding(.bottom, 24)
+        .frame(width: 200)
+        .background(Theme.sidebar)
+        .overlay(alignment: .trailing) { Rectangle().fill(Theme.line).frame(width: 1) }
     }
 }
 
 struct LogoView: View {
-    var size: CGFloat = 22
-
+    var size: CGFloat = 28
     var body: some View {
-        Circle()
-            .fill(
-                RadialGradient(
-                    colors: [Color(hex: 0xF2C078), Color(hex: 0xB65C3E), Color(hex: 0x5E4030)],
-                    center: UnitPoint(x: 0.32, y: 0.3),
-                    startRadius: 1,
-                    endRadius: size * 0.72
-                )
-            )
+        Image(nsImage: BrandAssets.logo)
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
             .frame(width: size, height: size)
-            .padding(.horizontal, 8)
+            .accessibilityLabel("栖理")
     }
 }

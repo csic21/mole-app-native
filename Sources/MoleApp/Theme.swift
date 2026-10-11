@@ -13,21 +13,19 @@ extension Color {
 }
 
 enum Theme {
-    static let star = Color(hex: 0xEFE8D8)
-    static let dim2 = Color(hex: 0xEFE8D8, opacity: 0.55)
-    static let dim3 = Color(hex: 0xEFE8D8, opacity: 0.38)
-    static let line = Color(hex: 0xEFE8D8, opacity: 0.09)
-    static let accent = Color(hex: 0x8B7CF0)
-    static let card = Color.white.opacity(0.035)
-    static let cardHover = Color.white.opacity(0.05)
-
-    static let windowClean = Color(hex: 0x1E2337)
-    static let windowApps = Color(hex: 0x1E1918)
-    static let windowOptimize = Color(hex: 0x1B1A17)
-    static let windowAnalyze = Color(hex: 0x241D15)
-    static let windowStatus = Color(hex: 0x23231A)
+    static let star = Color(hex: 0xE9EFEC)
+    static let dim2 = Color(hex: 0xB2C1BB)
+    static let dim3 = Color(hex: 0x899F96)
+    static let line = Color(hex: 0xC4D5CE, opacity: 0.12)
+    static let accent = Color(hex: 0x8BC4AF)
+    static let warm = Color(hex: 0xE9B782)
+    static let canvas = Color(hex: 0x202A2D)
+    static let surface = Color(hex: 0x263235)
+    static let sidebar = Color(hex: 0x172225)
+    static let card = Color(hex: 0x2C393C)
+    static let cardHover = Color(hex: 0x36494A)
 
     static let mono = Font.system(size: 12, design: .monospaced)
     static let monoSmall = Font.system(size: 11.5, design: .monospaced)
-    static let display = Font.custom("Songti SC", size: 15)
+    static let display = Font.system(size: 18, weight: .semibold)
 }
