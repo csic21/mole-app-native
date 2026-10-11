@@ -29,11 +29,24 @@ swift run        # 直接启动(需要 macOS 14+ 与 Xcode)
 窗口细节照官方:隐藏标题栏、交通灯浮在界面上、内容区域可直接拖动窗口,
 每个标签有自己的窗口底色(清理藏蓝、软件暗棕、优化近黑、分析巧克力、状态橄榄)。
 
+## 网站(落地页)
+
+落地页源码在 `site/`(Vite + React + Three.js),由 `Pages` workflow 自动构建并发布到
+**https://csic21.github.io/mole-app-native/**(推送 `site/**` 即触发)。
+
+```bash
+cd site
+pnpm install
+pnpm dev                 # 本地 http://localhost:5173
+PAGES_BASE=/mole-app-native/ pnpm build   # 复现 CI 构建
+```
+
 ## 目录
 
 ```
 Package.swift              # SwiftPM 工程(macOS 14+)
 scripts/package_app.sh     # 本地/CI 打包 .app 与 zip(ad-hoc 签名)
+site/                      # 落地页网站(Vite + React + Three.js,见「网站」一节)
 Sources/MoleApp/
   MoleApp.swift            # App 入口、窗口配置(隐藏标题栏/拖动)
   ContentView.swift        # 顶部胶囊标签 + 页面切换 + 新版本提示
