@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-enum Tab: String, CaseIterable, Identifiable {
+enum WorkspaceTab: String, CaseIterable, Identifiable {
     case clean, apps, optimize, analyze, status
     var id: String { rawValue }
 
@@ -37,7 +37,7 @@ enum Tab: String, CaseIterable, Identifiable {
 }
 
 struct ContentView: View {
-    @State private var tab: Tab = .clean
+    @State private var tab: WorkspaceTab = .clean
     @StateObject private var cleanStore = CleanStore()
     @StateObject private var appsStore = AppsStore()
     @StateObject private var loginStore = LoginItemsStore()
@@ -84,14 +84,14 @@ struct ContentView: View {
 
 /// Presentation-only shell. Previews and snapshot tests never create live stores.
 struct WorkspaceShell<Content: View, Footer: View>: View {
-    @Binding var tab: Tab
+    @Binding var tab: WorkspaceTab
     let updateTitle: String?
     let updateAction: () -> Void
     let scrollKey: String
     let content: Content
     let footer: Footer
 
-    init(tab: Binding<Tab>, updateTitle: String? = nil, updateAction: @escaping () -> Void = {},
+    init(tab: Binding<WorkspaceTab>, updateTitle: String? = nil, updateAction: @escaping () -> Void = {},
          scrollKey: String = "", @ViewBuilder content: () -> Content, @ViewBuilder footer: () -> Footer) {
         self._tab = tab
         self.updateTitle = updateTitle
@@ -143,7 +143,7 @@ struct WorkspaceShell<Content: View, Footer: View>: View {
 }
 
 private struct Sidebar: View {
-    @Binding var tab: Tab
+    @Binding var tab: WorkspaceTab
     let updateTitle: String?
     let updateAction: () -> Void
 
@@ -163,7 +163,7 @@ private struct Sidebar: View {
                 .font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.dim3)
                 .padding(.leading, 12).padding(.bottom, 10)
 
-            ForEach(Array(Tab.allCases.enumerated()), id: \.element.id) { index, item in
+            ForEach(Array(WorkspaceTab.allCases.enumerated()), id: \.element.id) { index, item in
                 SidebarItem(item: item, selected: tab == item) { tab = item }
                     .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
                     .help("\(item.label) · ⌘\(index + 1)")
@@ -192,7 +192,7 @@ private struct Sidebar: View {
 }
 
 private struct SidebarItem: View {
-    let item: Tab
+    let item: WorkspaceTab
     let selected: Bool
     let action: () -> Void
     @State private var hover = false

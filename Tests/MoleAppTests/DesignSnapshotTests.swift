@@ -249,9 +249,11 @@ final class DesignSnapshotTests: XCTestCase {
         let sizes = [NSSize(width: 1060, height: 680), NSSize(width: 1220, height: 820)]
         let scenes = makeScenes()
         let contrastScenes = scenes.filter { $0.page == .clean && ["selection", "partial"].contains($0.scenario) }
-        let plans: [(scene: SnapshotScene, size: NSSize, increasedContrast: Bool)] =
-            sizes.flatMap { size in scenes.map { ($0, size, false) } }
-            + contrastScenes.map { ($0, sizes[0], true) }
+        let processScenes = scenes.filter { $0.page == .status && $0.scenario == "metrics" }
+        let plans: [(scene: SnapshotScene, size: NSSize, increasedContrast: Bool, scrollToBottom: Bool)] =
+            sizes.flatMap { size in scenes.map { ($0, size, false, false) } }
+            + contrastScenes.map { ($0, sizes[0], true, false) }
+            + sizes.flatMap { size in processScenes.map { ($0, size, false, true) } }
         var captures: [[String: Any]] = []
         for plan in plans {
             let fixture = plan.scene
@@ -268,10 +270,11 @@ final class DesignSnapshotTests: XCTestCase {
                 transaction.disablesAnimations = true
             }
 
-            let variant = plan.increasedContrast ? "-increased-contrast" : ""
+            let variant = plan.scrollToBottom ? "-process-table" : (plan.increasedContrast ? "-increased-contrast" : "")
             let name = "\(fixture.page.rawValue)-\(fixture.scenario)-\(Int(size.width))x\(Int(size.height))\(variant).png"
             let destination = output.appendingPathComponent(name)
-            try capture(scene, size: size, increasedContrast: plan.increasedContrast, to: destination)
+            let scrollOrigin = try capture(scene, size: size, increasedContrast: plan.increasedContrast,
+                                           scrollToBottom: plan.scrollToBottom, to: destination)
             captures.append([
                 "file": name,
                 "page": fixture.page.rawValue,
@@ -282,6 +285,8 @@ final class DesignSnapshotTests: XCTestCase {
                 "scale": 1,
                 "contrast": plan.increasedContrast ? "increased" : "standard",
                 "appearance": plan.increasedContrast ? "accessibilityHighContrastDarkAqua" : "darkAqua",
+                "viewport": plan.scrollToBottom ? "bottom-process-table" : "top",
+                "scrollOriginY": Double(scrollOrigin ?? 0),
             ])
         }
 
@@ -298,8 +303,8 @@ final class DesignSnapshotTests: XCTestCase {
         ]
         try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
             .write(to: output.appendingPathComponent("manifest.json"), options: .atomic)
-        XCTAssertEqual(captures.count, 44)
-        XCTAssertEqual(Set(captures.compactMap { $0["page"] as? String }), Set(Tab.allCases.map(\.rawValue)))
+        XCTAssertEqual(captures.count, 46)
+        XCTAssertEqual(Set(captures.compactMap { $0["page"] as? String }), Set(WorkspaceTab.allCases.map(\.rawValue)))
     }
 
     @MainActor
@@ -342,7 +347,8 @@ final class DesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
-    private func capture<V: View>(_ root: V, size: NSSize, increasedContrast: Bool, to destination: URL) throws {
+    private func capture<V: View>(_ root: V, size: NSSize, increasedContrast: Bool,
+                                  scrollToBottom: Bool, to destination: URL) throws -> CGFloat? {
         let window = SnapshotWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -371,6 +377,9 @@ final class DesignSnapshotTests: XCTestCase {
         RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.12))
         let frame = try XCTUnwrap(window.contentView?.superview)
         frame.layoutSubtreeIfNeeded()
+        let scrollOrigin: CGFloat?
+        if scrollToBottom { scrollOrigin = try scrollMainContentToBottom(in: frame) }
+        else { scrollOrigin = nil }
         pauseIndeterminateIndicators(in: frame)
         frame.displayIfNeeded()
         for kind in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
@@ -401,6 +410,47 @@ final class DesignSnapshotTests: XCTestCase {
         XCTAssertEqual(decoded.pixelsWide, Int(size.width))
         XCTAssertEqual(decoded.pixelsHigh, Int(size.height))
         XCTAssertGreaterThan(png.count, 10_000, "Unexpectedly empty native capture: \(destination.lastPathComponent)")
+        return scrollOrigin
+    }
+
+    @MainActor
+    private func scrollMainContentToBottom(in frame: NSView) throws -> CGFloat {
+        func scrollViews(in view: NSView) -> [NSScrollView] {
+            let own = (view as? NSScrollView).map { [$0] } ?? []
+            return own + view.subviews.flatMap { scrollViews(in: $0) }
+        }
+        // The workspace's vertical scroller is the widest overflowing scroll view.
+        let candidates = scrollViews(in: frame).filter { scroll in
+            guard let document = scroll.documentView else { return false }
+            return document.bounds.height > scroll.contentView.bounds.height + 1
+        }
+        let scroll = try XCTUnwrap(candidates.max { $0.contentView.bounds.width < $1.contentView.bounds.width },
+                                   "Expected the real workspace vertical scroll view.")
+        let document = try XCTUnwrap(scroll.documentView)
+        let clip = scroll.contentView
+        let initialY = clip.bounds.origin.y
+
+        // Lazy native content can refine its height after entering the viewport.
+        // Recompute the endpoint after layout rather than hard-coding an offset.
+        for _ in 0..<4 {
+            document.layoutSubtreeIfNeeded()
+            let bottomY = document.isFlipped
+                ? max(document.bounds.minY, document.bounds.maxY - clip.bounds.height)
+                : document.bounds.minY
+            clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: bottomY))
+            scroll.reflectScrolledClipView(clip)
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.04))
+            frame.layoutSubtreeIfNeeded()
+        }
+        let expectedY = document.isFlipped
+            ? max(document.bounds.minY, document.bounds.maxY - clip.bounds.height)
+            : document.bounds.minY
+        XCTAssertGreaterThan(abs(clip.bounds.origin.y - initialY), 1,
+                             "The process-table capture must move below the initial fold.")
+        XCTAssertEqual(clip.bounds.origin.y, expectedY, accuracy: 2,
+                       "The last content section, containing the process table, must be in the viewport.")
+        frame.displayIfNeeded()
+        return clip.bounds.origin.y
     }
 
     @MainActor
@@ -511,12 +561,12 @@ private enum DesignScenario: String, CaseIterable {
 }
 
 private struct SnapshotScene {
-    let page: Tab
+    let page: WorkspaceTab
     let scenario: String
     let content: AnyView
     let footer: AnyView
 
-    init(page: Tab, scenario: String, content: AnyView, footer: AnyView = AnyView(EmptyView())) {
+    init(page: WorkspaceTab, scenario: String, content: AnyView, footer: AnyView = AnyView(EmptyView())) {
         self.page = page
         self.scenario = scenario
         self.content = content

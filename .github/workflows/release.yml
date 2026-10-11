@@ -2,46 +2,90 @@ name: Release
 
 on:
   push:
+    branches: [main]
+    paths: ['.github/release-request.json']
     tags: ['v*']
   workflow_dispatch:
     inputs:
       version:
-        description: '版本号(如 0.2.0),仅手动发布时使用'
-        required: false
+        description: 'Exact SemVer version already present in AppVersion.swift'
+        required: true
+        type: string
+      source_sha:
+        description: 'Full 40-character commit SHA already reviewed and tested on main'
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+# Serialize tag/request/manual runs; never cancel a release midway through publication.
+concurrency:
+  group: qili-release
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate release tooling
+        run: python3 -m unittest discover -s scripts/tests -p 'test_release_*.py'
+
+      - name: Resolve immutable release source
+        id: release
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/qili-release-tools"
+          cp scripts/{release_request,verify_release_artifact,publish_release,verify_published_release}.py "$RUNNER_TEMP/qili-release-tools/"
+          python3 "$RUNNER_TEMP/qili-release-tools/release_request.py" --output "$RUNNER_TEMP/qili-release.json"
+
+      - name: Reject existing release or conflicting tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 "$RUNNER_TEMP/qili-release-tools/publish_release.py" --manifest "$RUNNER_TEMP/qili-release.json" --preflight
+
+      - name: Check out vetted source
+        env:
+          RELEASE_SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
+        run: |
+          git checkout --detach "$RELEASE_SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$RELEASE_SOURCE_SHA"
 
       - name: Run tests
         run: swift test
 
-      - name: Resolve version
-        id: version
-        run: |
-          if [[ -n "${GITHUB_REF_NAME:-}" && "${GITHUB_REF_NAME}" == v* ]]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          else
-            V="${{ github.event.inputs.version }}"
-            [[ -n "$V" ]] || { echo "缺少版本号"; exit 1; }
-            echo "version=$V" >> "$GITHUB_OUTPUT"
-            echo "tag=v$V" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Check design palette contrast
+        run: python3 scripts/check_design_contrast.py
 
-      - name: Package .app
-        run: ./scripts/package_app.sh "${{ steps.version.outputs.version }}"
+      - name: Package and verify distributable
+        env:
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          bash scripts/package_app.sh "$RELEASE_VERSION"
+          python3 "$RUNNER_TEMP/qili-release-tools/verify_release_artifact.py" \
+            --manifest "$RUNNER_TEMP/qili-release.json" --arch "$(uname -m)"
 
       - name: Publish GitHub Release
+        id: publish
         env:
           GH_TOKEN: ${{ github.token }}
+        run: python3 "$RUNNER_TEMP/qili-release-tools/publish_release.py" --manifest "$RUNNER_TEMP/qili-release.json"
+
+      - name: Verify public release downloads
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" \
-            dist/Qili-*.zip \
-            --title "${{ steps.version.outputs.tag }}" \
-            --generate-notes
+          python3 "$RUNNER_TEMP/qili-release-tools/verify_published_release.py" --arch "$(uname -m)"
+
+      - name: Upload public release verification
+        if: always() && steps.publish.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Qili-release-verification
+          path: dist/public-verification/
+          if-no-files-found: error
+          retention-days: 7

@@ -92,6 +92,7 @@ Pages 工作流仍使用现有仓库路径。下载与源码链接均指向本�
 
 推送 main 或提交 PR 会构建应用；推送 `v*` 标签会生成 `Qili-<version>.zip` 并发布 GitHub Release。
 版本常量位于 `Sources/MoleApp/AppVersion.swift`，发版时应与标签一致。
+发布精确已验证提交、请求格式与安装包核验步骤见 [发布说明](docs/RELEASING.md)。
 
 ## 来源与许可
 

@@ -11,6 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate release tooling
+        run: python3 -m unittest discover -s scripts/tests -p 'test_release_*.py'
+
       - name: Run tests
         run: swift test
 

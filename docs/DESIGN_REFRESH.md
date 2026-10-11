@@ -51,8 +51,9 @@ Reference principles, not copied screens:
 
 The scan implementation, allowlisted roots, exclusions, physical file traversal,
 Trash path/symlink revalidation, command execution and update/security mechanisms are
-unchanged. The fixture hook guards scan/stop/Trash at the store entry points and exists
-only in DEBUG constructors. Finder actions are inert for fixtures.
+unchanged. DEBUG-only fixture constructors bypass live initialization and guard scan/stop/Trash,
+application/network/startup/maintenance actions and hardware polling at store entry points.
+Finder and folder-panel actions are inert, with isolated view preferences for fixtures.
 
 There is no empty-Trash action, app uninstall, file-map deletion, speculative metric,
 or new network service. Maintenance retains the existing selections and authorization.
@@ -82,17 +83,19 @@ bitmap capture, including native window controls. It does not use HTML mockups o
 can omit AppKit-backed controls. All data is synthetic, rooted under `/QiliPreview`,
 and actions cannot perform live filesystem work. An explicit opt-in and output path
 are required. Captures use fixed 1060×680 and 1220×820 window sizes, a Chinese locale,
-dark Aqua, and two increased-contrast variants. Native progress indicators are paused
+dark Aqua, and two increased-contrast variants and two scrolled process-table views. Native progress indicators are paused
 for captures; these are review images, not a claim of pixel consistency across OS releases.
 
-The initial local implementation was made on a Linux executor with no Swift toolchain.
-Only source/static checks ran there. Native compilation, the existing safety regressions,
-new fixture/outcome tests and PNG export must pass on macOS before acceptance.
-No native screenshots were produced or inspected at that stage.
+Native compilation, existing safety regressions, fixture/outcome tests and PNG export
+must pass on macOS before acceptance. Portable source checks cannot establish a native
+build or visual result.
 
-The automatic capture matrix covers cleanup initial, scanning, results, selection, empty,
-inaccessible, moving, complete, partial and failed states. Other pages still require
-native interactive review; they are not represented by fabricated screenshots.
+The 46-image capture matrix covers cleanup initial, scanning, results, selection, empty,
+inaccessible, moving, complete, partial and failed states; file-map list/cards/empty/error;
+status readings/unavailable metrics and the scrolled process table; app inventory/updates/
+startup items; and maintenance selection/results. Both window sizes use isolated synthetic
+fixtures. Interactive keyboard, VoiceOver and interruption flows still need manual review;
+static images do not establish those behaviors.
 
 Manual acceptance checklist:
 
