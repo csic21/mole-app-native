@@ -25,8 +25,9 @@ bash scripts/package_app.sh 0.5.0              # dist/Qili.app 与 dist/Qili-0.5
 bash scripts/package_app.sh 0.5.0 .build/qili-preview
 ```
 
-也可用 Xcode 打开 `Package.swift`。内部 SwiftPM 目标仍叫 `MoleApp`，仓库 URL 和
-bundle identifier 保留以兼容已有构建与更新检查；产品显示名和发行包使用栖理 / Qili。
+也可用 Xcode 打开 `Package.swift`。内部 SwiftPM 目标与 bundle identifier 仍叫 `MoleApp` /
+`com.csic21.moleapp` 以兼容已有构建与更新检查；产品显示名和发行包使用栖理 / Qili。仓库地址为
+`csic21/qili`，旧地址 `csic21/mole-app-native` 由 GitHub 自动重定向，旧版本内置的更新源不受影响。
 
 发行包是 DMG:打开后把 `Qili.app` 拖入「应用程序」即可。应用内嵌 Sparkle,首次安装后
 会自动检查并直接安装后续版本。当前使用 ad-hoc 签名,尚未完成公证,首次打开需要右键
@@ -86,7 +87,7 @@ bash scripts/generate_icons.sh
 cd site
 pnpm install --frozen-lockfile
 pnpm dev
-PAGES_BASE=/mole-app-native/ pnpm build
+PAGES_BASE=/qili/ pnpm build
 ```
 
 Pages 工作流仍使用现有仓库路径。下载与源码链接均指向本项目。

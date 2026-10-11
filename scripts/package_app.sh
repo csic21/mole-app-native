@@ -12,7 +12,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 # Sparkle 更新源与 EdDSA 公钥。公钥可以公开;私钥只存在于维护者钥匙串与 GitHub Secret。
-SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://github.com/csic21/mole-app-native/releases/latest/download/appcast.xml}"
+SPARKLE_FEED_URL="${SPARKLE_FEED_URL:-https://github.com/csic21/qili/releases/latest/download/appcast.xml}"
 SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-SpAtOrj49qX9ORjeZ1ZZayiyFy/7uT0e3JPvto0eTjc=}"
 
 echo "==> swift build -c release"

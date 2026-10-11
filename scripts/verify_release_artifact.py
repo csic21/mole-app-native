@@ -21,7 +21,7 @@ import zipfile
 from release_request import ReleaseError, validate_sha, validate_version
 
 
-DEFAULT_FEED_URL = "https://github.com/csic21/mole-app-native/releases/latest/download/appcast.xml"
+DEFAULT_FEED_URL = "https://github.com/csic21/qili/releases/latest/download/appcast.xml"
 
 APP_IDENTITY = {"CFBundleIdentifier": "com.csic21.moleapp", "CFBundleName": "Qili",
                 "CFBundleExecutable": "MoleApp", "CFBundlePackageType": "APPL",

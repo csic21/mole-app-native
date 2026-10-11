@@ -13,7 +13,7 @@ pnpm build
 pnpm lint
 ```
 
-GitHub Pages 的子路径通过 `PAGES_BASE=/mole-app-native/` 注入。
+GitHub Pages 的子路径通过 `PAGES_BASE=/qili/` 注入。
 `src/data/site.ts` 集中维护功能说明、下载地址和素材地址；功能链接兼容 `#/clean`、
 `#/apps`、`#/optimize`、`#/analyze` 与 `#/status`，可直接分享。
 

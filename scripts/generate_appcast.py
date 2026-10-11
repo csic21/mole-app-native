@@ -13,7 +13,7 @@ from release_request import ReleaseError, validate_sha, validate_version
 
 
 SPARKLE_NAMESPACE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
-DOWNLOAD_PREFIX = "https://github.com/csic21/mole-app-native/releases/download"
+DOWNLOAD_PREFIX = "https://github.com/csic21/qili/releases/download"
 
 
 def find_sparkle_tool(name):

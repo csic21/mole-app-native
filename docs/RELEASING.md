@@ -68,7 +68,7 @@ main pushes do not publish a release. Do not commit this example as a live reque
 ## In-app updates (Sparkle)
 
 Published DMGs double as the Sparkle update payload. The feed lives at
-`https://github.com/csic21/mole-app-native/releases/latest/download/appcast.xml`
+`https://github.com/csic21/qili/releases/latest/download/appcast.xml`
 and every release attaches its own `appcast.xml`.
 
 - The EdDSA **public** key is embedded in `scripts/package_app.sh`

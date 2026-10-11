@@ -1,4 +1,4 @@
-export const PROJECT_URL = 'https://github.com/csic21/mole-app-native'
+export const PROJECT_URL = 'https://github.com/csic21/qili'
 export const DOWNLOAD_URL = `${PROJECT_URL}/releases/latest`
 export const LOGO_URL = `${import.meta.env.BASE_URL}qili-logo.png`
 
