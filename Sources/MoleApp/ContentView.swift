@@ -176,6 +176,13 @@ private struct Sidebar: View {
                 }
                 .buttonStyle(WorkspaceButtonStyle(kind: .quiet))
                 .padding(.bottom, 8)
+            } else {
+                Button(action: updateAction) {
+                    Label("检查更新", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(WorkspaceButtonStyle(kind: .quiet))
+                .help("立即检查新版本")
+                .padding(.bottom, 8)
             }
             Text("栖理 v\(AppVersion.current)").font(.system(size: 12)).foregroundStyle(Theme.dim2)
             Text("给文件留位置，给工作留余地。")
