@@ -6,6 +6,7 @@ struct CleanItem: Identifiable {
     let id: String
     let name: String
     let sizeBytes: Int64
+    var partial = false
 }
 
 /// 一个清理类别:固定白名单目录,绝不越界。
@@ -22,6 +23,7 @@ struct CleanCategory: Identifiable {
     let mode: Mode
     var skipPrefixes: [String] = []
     var skipNames: Set<String> = []
+    var partial = false
     var measured = false
     var sizeBytes: Int64 = 0
     var children: [CleanItem] = []
@@ -30,7 +32,8 @@ struct CleanCategory: Identifiable {
 struct TrashResult {
     let moved: Int
     let failed: Int
-    let freedBytes: Int64
+    let movedBytes: Int64
+    var failures: [String] = []
 }
 
 @MainActor
@@ -38,6 +41,39 @@ final class CleanStore: ObservableObject {
     @Published private(set) var categories: [CleanCategory] = []
     @Published private(set) var scanning = false
     @Published private(set) var measuredCount = 0
+    enum Phase { case scanning, result, list, trashing, done }
+    @Published var phase: Phase = .scanning
+    @Published var selected: Set<String> = []
+    @Published var expanded: Set<String> = []
+    @Published private(set) var result: TrashResult?
+    @Published private(set) var stopped = false
+    @Published private(set) var currentCategory = ""
+    @Published private(set) var hasScanned = false
+
+    var selectedItems: [CleanItem] {
+        categories.flatMap(\.children).filter { selected.contains($0.id) }
+    }
+
+    func toggleCategory(_ category: CleanCategory) {
+        let ids = Set(category.children.map(\.id))
+        if ids.isSubset(of: selected) { selected.subtract(ids) }
+        else { selected.formUnion(ids) }
+    }
+
+    func toggleItem(_ id: String) {
+        if !selected.insert(id).inserted { selected.remove(id) }
+    }
+
+    func stop() {
+        scanTask?.cancel()
+        scanning = false
+        stopped = true
+        for index in categories.indices where !categories[index].measured && !categories[index].children.isEmpty {
+            categories[index].partial = true
+            categories[index].measured = true
+        }
+        if phase == .scanning { phase = .result }
+    }
 
     private var scanTask: Task<Void, Never>?
 
@@ -69,8 +105,15 @@ final class CleanStore: ObservableObject {
         ]
     }
 
-    func scan() {
+    func scan(showProgress: Bool = true) {
+        guard phase != .trashing else { return }
         scanTask?.cancel()
+        hasScanned = true
+        currentCategory = "准备扫描"
+        if showProgress { phase = .scanning }
+        selected = []
+        expanded = []
+        stopped = false
         categories = Self.defaultCategories().filter {
             FileManager.default.fileExists(atPath: $0.root.path)
         }
@@ -80,7 +123,11 @@ final class CleanStore: ObservableObject {
             guard let self else { return }
             for (index, category) in self.categories.enumerated() {
                 if Task.isCancelled { return }
-                let measured = await Self.measure(category)
+                self.currentCategory = category.title
+                let measured = await Self.measure(category) { [weak self] progress in
+                    guard !Task.isCancelled, let self, index < self.categories.count else { return }
+                    self.categories[index] = progress
+                }
                 guard !Task.isCancelled else { return }
                 if index < self.categories.count {
                     self.categories[index] = measured
@@ -88,24 +135,30 @@ final class CleanStore: ObservableObject {
                 }
             }
             self.scanning = false
+            if self.phase == .scanning { self.phase = .result }
         }
     }
 
     /// 枚举一级子项(跳过隐藏与符号链接),四并发测体积。
-    nonisolated private static func measure(_ category: CleanCategory) async -> CleanCategory {
+    nonisolated static func measure(_ category: CleanCategory, onProgress: (@MainActor (CleanCategory) -> Void)? = nil) async -> CleanCategory {
         var result = category
         let fm = FileManager.default
         var targets: [URL] = []
+        guard !Task.isCancelled else { return result }
 
         switch category.mode {
         case .whole:
             targets = [category.root]
         case .children:
-            let entries = (try? fm.contentsOfDirectory(
-                at: category.root,
-                includingPropertiesForKeys: [.isSymbolicLinkKey],
-                options: []
-            )) ?? []
+            let entries: [URL]
+            do {
+                entries = try fm.contentsOfDirectory(at: category.root,
+                    includingPropertiesForKeys: [.isSymbolicLinkKey], options: [])
+            } catch {
+                result.measured = true
+                result.partial = true
+                return result
+            }
             targets = entries.filter { url in
                 let name = url.lastPathComponent
                 if name.hasPrefix(".") { return false }
@@ -117,25 +170,31 @@ final class CleanStore: ObservableObject {
         }
 
         var items: [CleanItem] = []
+        var lastProgress = ProcessInfo.processInfo.systemUptime
         await withTaskGroup(of: CleanItem.self) { group in
             var next = 0
-            let limit = 4
-            while next < min(limit, targets.count) {
+            func enqueue() {
                 let url = targets[next]
                 group.addTask {
-                    CleanItem(id: url.path, name: url.lastPathComponent, sizeBytes: AppsStore.directorySize(url))
+                    let size = FileSizer.measure(url)
+                    return CleanItem(id: url.path, name: url.lastPathComponent, sizeBytes: size.bytes, partial: size.partial)
                 }
                 next += 1
             }
+            while next < min(4, targets.count) { enqueue() }
             for await item in group {
+                if Task.isCancelled { group.cancelAll(); return }
                 items.append(item)
-                if next < targets.count {
-                    let url = targets[next]
-                    group.addTask {
-                        CleanItem(id: url.path, name: url.lastPathComponent, sizeBytes: AppsStore.directorySize(url))
-                    }
-                    next += 1
+                let now = ProcessInfo.processInfo.systemUptime
+                if now - lastProgress >= 0.15 {
+                    var progress = category
+                    progress.children = items.sorted { $0.sizeBytes > $1.sizeBytes }
+                    progress.sizeBytes = items.reduce(0) { $0 + $1.sizeBytes }
+                    progress.partial = true
+                    await onProgress?(progress)
+                    lastProgress = now
                 }
+                if next < targets.count { enqueue() }
             }
         }
 
@@ -143,41 +202,56 @@ final class CleanStore: ObservableObject {
         result.children = items
         result.sizeBytes = items.reduce(0) { $0 + $1.sizeBytes }
         result.measured = true
+        result.partial = items.contains { $0.partial }
         return result
     }
 
-    /// 移到废纸篓;落闸前逐条重校验:仍是普通目录/文件、仍在既定 root 之下。
-    func trash(selected ids: Set<String>) async -> TrashResult {
+    /// 只处理已勾选的真实子项。移动放在后台，页面切换不会丢失结果。
+    func trash() async {
+        guard phase != .trashing, !scanning, !selected.isEmpty else { return }
+        let snapshot = categories
+        let ids = selected
+        phase = .trashing
+        result = await Task.detached(priority: .userInitiated) {
+            Self.moveToTrash(categories: snapshot, selected: ids)
+        }.value
+        phase = .done
+        scan(showProgress: false)
+    }
+
+    nonisolated private static func moveToTrash(categories: [CleanCategory], selected: Set<String>) -> TrashResult {
         let fm = FileManager.default
         var moved = 0
-        var failed = 0
-        var freed: Int64 = 0
-
-        for category in categories where ids.contains(category.id) {
-            let rootPath = category.root.standardizedFileURL.path
-            for item in category.children {
-                let url = URL(fileURLWithPath: item.id)
-                guard let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey]),
-                      values.isSymbolicLink != true,
-                      fm.fileExists(atPath: url.path) else {
-                    failed += 1
-                    continue
-                }
-                let standardized = url.standardizedFileURL.path
-                guard standardized == rootPath || standardized.hasPrefix(rootPath + "/") else {
-                    failed += 1
+        var failures: [String] = []
+        var bytes: Int64 = 0
+        for category in categories {
+            for item in category.children where selected.contains(item.id) {
+                let url = URL(fileURLWithPath: item.id).standardizedFileURL
+                // 检查整条路径，防止扫描后父目录被替换为符号链接。
+                guard isValidTrashTarget(url, category: category) else {
+                    failures.append("\(item.name)：路径已变化或不可访问")
                     continue
                 }
                 do {
-                    var resulting: NSURL?
-                    try fm.trashItem(at: url, resultingItemURL: &resulting)
+                    try fm.trashItem(at: url, resultingItemURL: nil)
                     moved += 1
-                    freed += item.sizeBytes
+                    bytes += item.sizeBytes
                 } catch {
-                    failed += 1
+                    failures.append("\(item.name)：\(error.localizedDescription)")
                 }
             }
         }
-        return TrashResult(moved: moved, failed: failed, freedBytes: freed)
+        return TrashResult(moved: moved, failed: failures.count, movedBytes: bytes, failures: failures)
     }
+    nonisolated static func isValidTrashTarget(_ url: URL, category: CleanCategory) -> Bool {
+        let root = category.root.standardizedFileURL
+        let target = url.standardizedFileURL
+        guard target.resolvingSymlinksInPath().path == target.path,
+              root.resolvingSymlinksInPath().path == root.path,
+              (category.mode == .whole ? target.path == root.path : target.deletingLastPathComponent().path == root.path),
+              let values = try? target.resourceValues(forKeys: [.isSymbolicLinkKey]),
+              values.isSymbolicLink != true else { return false }
+        return true
+    }
+
 }

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct CheckView: View {
     var on: Bool
+    var mixed = false
+    var label = "选择"
     var action: (() -> Void)?
 
     var body: some View {
@@ -11,9 +13,9 @@ struct CheckView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 5)
                     .strokeBorder(Theme.dim3, lineWidth: 1.5)
-                if on {
+                if on || mixed {
                     RoundedRectangle(cornerRadius: 5).fill(Theme.accent)
-                    Image(systemName: "checkmark")
+                    Image(systemName: mixed ? "minus" : "checkmark")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundStyle(Theme.sidebar)
                 }
@@ -22,6 +24,8 @@ struct CheckView: View {
         }
         .buttonStyle(.plain)
         .disabled(action == nil)
+        .accessibilityLabel(label)
+        .accessibilityValue(mixed ? "部分选择" : (on ? "已选择" : "未选择"))
     }
 }
 
@@ -42,7 +46,7 @@ struct BarView: View {
                             endPoint: .trailing
                         )
                     )
-                    .frame(width: max(0, geo.size.width * value / 100))
+                    .frame(width: max(0, geo.size.width * min(100, max(0, value.isFinite ? value : 0)) / 100))
             }
         }
         .frame(height: mini ? 6 : 8)

@@ -11,6 +11,7 @@ struct ScannedApp: Identifiable {
     let modified: String
     var sizeBytes: Int64?
     var icon: NSImage?
+    var partial = false
 }
 
 /// 展开时按 Bundle ID / 名称找出的关联残留(存在才算)。
@@ -19,6 +20,7 @@ struct LeftoverItem: Identifiable {
     let kind: String
     let path: String
     let sizeBytes: Int64
+    var partial = false
 }
 
 @MainActor
@@ -26,28 +28,44 @@ final class AppsStore: ObservableObject {
     @Published private(set) var apps: [ScannedApp] = []
     @Published private(set) var scanning = false
     @Published private(set) var sizedCount = 0
+    @Published private(set) var measuring = false
+    @Published private(set) var generation = 0
+    @Published private(set) var hasScanned = false
+    @Published private(set) var stopped = false
 
     private var sizeTask: Task<Void, Never>?
 
     func refresh() {
         sizeTask?.cancel()
+        generation += 1
+        stopped = false
+        let revision = generation
         scanning = true
+        measuring = true
         sizedCount = 0
-        apps = []
-        Task.detached(priority: .userInitiated) { [weak self] in
-            let basic = Self.discoverApps()
-            await self?.publish(basic)
-            await self?.measureSizes()
+        sizeTask = Task { [weak self] in
+            let discovery = Task.detached(priority: .userInitiated) { Self.discoverApps() }
+            let basic = await withTaskCancellationHandler { await discovery.value } onCancel: { discovery.cancel() }
+            guard let self, !Task.isCancelled, self.generation == revision else { return }
+            self.apps = basic
+            self.hasScanned = true
+            self.scanning = false
+            await self.measureSizes(basic, revision: revision)
+            guard !Task.isCancelled, self.generation == revision else { return }
+            self.measuring = false
         }
     }
 
-    private func publish(_ basic: [ScannedApp]) {
-        apps = basic.map { item in
-            var app = item
-            app.icon = NSWorkspace.shared.icon(forFile: item.url.path)
-            return app
-        }
+    func stopMeasuring() {
+        sizeTask?.cancel()
+        stopped = true
         scanning = false
+        measuring = false
+    }
+
+    func loadIcon(for id: String) {
+        guard let index = apps.firstIndex(where: { $0.id == id }), apps[index].icon == nil else { return }
+        apps[index].icon = NSWorkspace.shared.icon(forFile: apps[index].url.path)
     }
 
     /// 只做轻量枚举:名称、版本、Bundle ID、修改时间。图标在 MainActor 上补。
@@ -69,6 +87,7 @@ final class AppsStore: ObservableObject {
                 options: [.skipsHiddenFiles]
             )) ?? []
             for entry in entries where entry.pathExtension == "app" {
+                if Task.isCancelled { return result }
                 guard !seen.contains(entry.path) else { continue }
                 seen.insert(entry.path)
 
@@ -98,53 +117,29 @@ final class AppsStore: ObservableObject {
         }
     }
 
-    /// 逐个测量体积:最多四个并发,按原始顺序回填。
-    private func measureSizes() async {
-        let snapshot = apps
-        sizeTask = Task { [weak self] in
-            await withTaskGroup(of: (Int, Int64).self) { group in
-                var next = 0
-                let limit = 4
-                while next < min(limit, snapshot.count) {
-                    let index = next
-                    let url = snapshot[index].url
-                    group.addTask { (index, Self.directorySize(url)) }
-                    next += 1
+    /// 单一父任务管理发现与测量；按路径回填，旧扫描不会污染新列表。
+    private func measureSizes(_ snapshot: [ScannedApp], revision: Int) async {
+        await withTaskGroup(of: (String, FileSizer.Measurement).self) { group in
+            var next = 0
+            func enqueue() {
+                let item = snapshot[next]
+                group.addTask { (item.id, FileSizer.measure(item.url)) }
+                next += 1
+            }
+            while next < min(4, snapshot.count) { enqueue() }
+            for await (id, size) in group {
+                guard !Task.isCancelled, generation == revision else { group.cancelAll(); return }
+                if let index = apps.firstIndex(where: { $0.id == id }) {
+                    apps[index].sizeBytes = size.bytes
+                    apps[index].partial = size.partial
+                    sizedCount += 1
                 }
-                for await (index, size) in group {
-                    guard let self, !Task.isCancelled else { return }
-                    if index < self.apps.count {
-                        self.apps[index].sizeBytes = size
-                        self.sizedCount += 1
-                    }
-                    if next < snapshot.count {
-                        let nextIndex = next
-                        let url = snapshot[nextIndex].url
-                        group.addTask { (nextIndex, Self.directorySize(url)) }
-                        next += 1
-                    }
-                }
+                if next < snapshot.count { enqueue() }
             }
         }
-        await sizeTask?.value
     }
 
-    nonisolated static func directorySize(_ url: URL) -> Int64 {
-        var total: Int64 = 0
-        let keys: Set<URLResourceKey> = [.isRegularFileKey, .totalFileAllocatedSizeKey, .fileAllocatedSizeKey]
-        guard let enumerator = FileManager.default.enumerator(
-            at: url,
-            includingPropertiesForKeys: Array(keys),
-            options: [],
-            errorHandler: { _, _ in true }
-        ) else { return 0 }
-        for case let fileURL as URL in enumerator {
-            guard let values = try? fileURL.resourceValues(forKeys: keys),
-                  values.isRegularFile == true else { continue }
-            total += Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
-        }
-        return total
-    }
+    nonisolated static func directorySize(_ url: URL) -> Int64 { FileSizer.measure(url).bytes }
 
     /// 按 Bundle ID / 名称找出真实存在的关联文件。
     nonisolated static func leftovers(for app: ScannedApp) -> [LeftoverItem] {
@@ -165,15 +160,14 @@ final class AppsStore: ObservableObject {
         var items: [LeftoverItem] = []
         var seen = Set<String>()
         for (kind, url) in candidates where !seen.contains(url.path) {
+            if Task.isCancelled { break }
             seen.insert(url.path)
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
-            let size: Int64
-            if url.pathExtension == "plist" {
-                size = Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
-            } else {
-                size = directorySize(url)
-            }
-            items.append(LeftoverItem(id: url.path, kind: kind, path: Self.tildePath(url), sizeBytes: size))
+            let size: FileSizer.Measurement
+            if url == app.url, let bytes = app.sizeBytes {
+                size = FileSizer.Measurement(bytes: bytes, partial: app.partial)
+            } else { size = FileSizer.measure(url) }
+            items.append(LeftoverItem(id: url.path, kind: kind, path: Self.tildePath(url), sizeBytes: size.bytes, partial: size.partial))
         }
         return items
     }
@@ -195,6 +189,8 @@ final class AppsStore: ObservableObject {
 
     nonisolated static func formatBytes(_ bytes: Int64?) -> String {
         guard let bytes else { return "测量中…" }
+        if bytes == 0 { return "0 B" }
+        if bytes < 1024 { return "\(bytes) B" }
         let gb = Double(bytes) / 1_073_741_824
         if gb >= 1 { return String(format: "%.2f GB", gb) }
         let mb = Double(bytes) / 1_048_576

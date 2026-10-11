@@ -10,5 +10,6 @@ let package = Package(
             path: "Sources/MoleApp",
             resources: [.process("Resources")]
         ),
+        .testTarget(name: "MoleAppTests", dependencies: ["MoleApp"]),
     ]
 )

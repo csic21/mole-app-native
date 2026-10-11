@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// 分析页的一项:真实文件或目录,体积逐步测量。
 struct AnalyzeItem: Identifiable {
     let id: String
     let url: URL
@@ -17,123 +16,122 @@ final class AnalyzeStore: ObservableObject {
     @Published private(set) var items: [AnalyzeItem] = []
     @Published private(set) var sizing = false
     @Published private(set) var sizedCount = 0
+    @Published private(set) var error: String?
+    @Published private(set) var stopped = false
+    @Published private(set) var fromCache = false
+    @Published private(set) var hasLoaded = false
 
     let home = FileManager.default.homeDirectoryForCurrentUser
     private var task: Task<Void, Never>?
+    private struct Cached { let date: Date; let items: [AnalyzeItem] }
+    private var cache: [URL: Cached] = [:]
 
-    init() {
-        path = [home]
-    }
-
+    init() { path = [home] }
     var current: URL { path.last ?? home }
-
-    var totalBytes: Int64 {
-        items.compactMap { $0.sizeBytes }.reduce(0, +)
-    }
-
-    var totalText: String {
-        if sizing { return "已测 \(sizedCount)/\(items.count) 项" }
-        return AppsStore.formatBytes(totalBytes)
-    }
+    var totalBytes: Int64 { items.compactMap(\.sizeBytes).reduce(0, +) }
+    var totalText: String { AppsStore.formatBytes(totalBytes) }
 
     func enter(_ item: AnalyzeItem) {
         guard item.isDirectory else { return }
         path.append(item.url)
-        rescan()
+        load()
     }
 
     func goUp() {
         guard path.count > 1 else { return }
         path.removeLast()
-        rescan()
+        load()
     }
 
     func jump(to index: Int) {
+        guard path.indices.contains(index), index != path.count - 1 else { return }
         path = Array(path.prefix(index + 1))
-        rescan()
+        load()
     }
 
-    func rescan() {
+    func open(_ url: URL) { path = [url]; load() }
+    func rescan() { load(force: true) }
+    func stop() {
+        task?.cancel()
+        sizing = false
+        stopped = true
+    }
+
+    private func load(force: Bool = false) {
         task?.cancel()
         let root = current
+        hasLoaded = true
+        stopped = false
+        fromCache = false
+        error = nil
+        if !force, let cached = cache[root], Date().timeIntervalSince(cached.date) < 120 {
+            items = cached.items
+            sizedCount = items.count
+            sizing = false
+            fromCache = true
+            return
+        }
         items = []
         sizing = true
         sizedCount = 0
         task = Task { [weak self] in
-            let children = await Task.detached(priority: .userInitiated) {
-                Self.listChildren(root)
-            }.value
-            guard let self, !Task.isCancelled else { return }
-            self.items = children
-            if children.isEmpty {
+            let listing = Task.detached(priority: .userInitiated) { try Self.listChildren(root) }
+            do {
+                let children = try await withTaskCancellationHandler { try await listing.value } onCancel: { listing.cancel() }
+                guard let self, !Task.isCancelled else { return }
+                self.items = children
+                self.sizedCount = children.filter { $0.sizeBytes != nil }.count
+                await self.measureAll(children.filter { $0.isDirectory })
+                guard !Task.isCancelled else { return }
+                self.items.sort { ($0.sizeBytes ?? -1) > ($1.sizeBytes ?? -1) }
                 self.sizing = false
-                return
+                self.cache[root] = Cached(date: Date(), items: self.items)
+                if self.cache.count > 12, let oldest = self.cache.min(by: { $0.value.date < $1.value.date })?.key {
+                    self.cache.removeValue(forKey: oldest)
+                }
+            } catch {
+                guard let self, !Task.isCancelled else { return }
+                self.error = error.localizedDescription
+                self.sizing = false
             }
-            await self.measureAll(children)
-            guard !Task.isCancelled else { return }
-            self.items.sort { ($0.sizeBytes ?? -1) > ($1.sizeBytes ?? -1) }
-            self.sizing = false
         }
     }
 
-    /// 只列一级子项:目录与文件都保留;符号链接与隐藏项照旧跳过符号链接(隐藏项保留)。
-    nonisolated static func listChildren(_ root: URL) -> [AnalyzeItem] {
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey]
-        let entries = (try? FileManager.default.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: keys,
-            options: []
-        )) ?? []
-
+    nonisolated static func listChildren(_ root: URL) throws -> [AnalyzeItem] {
+        let entries = try FileManager.default.contentsOfDirectory(
+            at: root, includingPropertiesForKeys: Array(FileSizer.keys), options: []
+        )
         var items: [AnalyzeItem] = []
         for entry in entries {
-            guard let values = try? entry.resourceValues(forKeys: Set(keys)),
+            if Task.isCancelled { break }
+            guard let values = try? entry.resourceValues(forKeys: FileSizer.keys),
                   values.isSymbolicLink != true else { continue }
-            let isDirectory = values.isDirectory == true
-            var item = AnalyzeItem(
-                id: entry.path,
-                url: entry,
-                name: entry.lastPathComponent,
-                isDirectory: isDirectory,
-                sizeBytes: nil
-            )
-            if !isDirectory {
-                item.sizeBytes = Int64(values.fileSize ?? 0)
-            }
-            items.append(item)
+            let directory = values.isDirectory == true
+            items.append(AnalyzeItem(id: entry.path, url: entry, name: entry.lastPathComponent,
+                                     isDirectory: directory,
+                                     sizeBytes: directory ? nil : Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)))
         }
         return items.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
-    /// 四并发测体积,谁先完成先填谁。
     private func measureAll(_ snapshot: [AnalyzeItem]) async {
-        await withTaskGroup(of: (String, Int64).self) { group in
+        await withTaskGroup(of: (String, FileSizer.Measurement).self) { group in
             var next = 0
-            let limit = 4
-            while next < min(limit, snapshot.count) {
+            func enqueue() {
                 let item = snapshot[next]
-                group.addTask { (item.id, Self.size(of: item)) }
+                group.addTask { (item.id, FileSizer.measure(item.url)) }
                 next += 1
             }
+            while next < min(4, snapshot.count) { enqueue() }
             for await (id, size) in group {
-                if Task.isCancelled { return }
+                guard !Task.isCancelled else { group.cancelAll(); return }
                 if let index = items.firstIndex(where: { $0.id == id }) {
-                    items[index].sizeBytes = size
+                    items[index].sizeBytes = size.bytes
+                    items[index].partial = size.partial
                     sizedCount += 1
                 }
-                if next < snapshot.count {
-                    let item = snapshot[next]
-                    group.addTask { (item.id, Self.size(of: item)) }
-                    next += 1
-                }
+                if next < snapshot.count { enqueue() }
             }
         }
-    }
-
-    nonisolated private static func size(of item: AnalyzeItem) -> Int64 {
-        if item.isDirectory {
-            return AppsStore.directorySize(item.url)
-        }
-        return item.sizeBytes ?? 0
     }
 }

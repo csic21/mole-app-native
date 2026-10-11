@@ -111,7 +111,7 @@ struct SystemMetrics {
               let free = attributes[.systemFreeSize] as? NSNumber else { return nil }
         let totalBytes = total.uint64Value
         let freeBytes = free.uint64Value
-        return DiskInfo(usedBytes: totalBytes - freeBytes, totalBytes: totalBytes)
+        return DiskInfo(usedBytes: totalBytes - min(freeBytes, totalBytes), totalBytes: totalBytes)
     }
 
     // ---------------------------------------------------------- 网络
@@ -337,7 +337,13 @@ struct SystemMetrics {
         return String(cString: buffer)
     }
 
-    static func battery() -> (percent: Int, charging: Bool)? {
+    struct BatteryInfo {
+        let percent: Int
+        let charging: Bool
+        let onAC: Bool
+    }
+
+    static func battery() -> BatteryInfo? {
         guard let snapshot = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
               let sources = IOPSCopyPowerSourcesList(snapshot)?.takeRetainedValue() as? [CFTypeRef] else {
             return nil
@@ -351,7 +357,7 @@ struct SystemMetrics {
             let charging = (description[kIOPSIsChargingKey as String] as? Bool) ?? false
             let onAC = (description[kIOPSPowerSourceStateKey as String] as? String)
                 == (kIOPSACPowerValue as String)
-            return (Int(Double(current) / Double(maxCapacity) * 100), charging || onAC)
+            return BatteryInfo(percent: Int(Double(current) / Double(maxCapacity) * 100), charging: charging, onAC: onAC)
         }
         return nil
     }
@@ -359,20 +365,9 @@ struct SystemMetrics {
     // ---------------------------------------------------------- 进程
 
     static func topProcesses(limit: Int = 8) -> [RealProcess] {
-        let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/bin/ps")
-        task.arguments = ["-axo", "pid=,pcpu=,rss=,comm="]
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = Pipe()
-        do {
-            try task.run()
-        } catch {
-            return []
-        }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        task.waitUntilExit()
-        guard let output = String(data: data, encoding: .utf8) else { return [] }
+        let result = CommandRunner.runSync("/bin/ps", ["-axo", "pid=,pcpu=,rss=,comm="], timeout: 3)
+        guard result.code == 0 else { return [] }
+        let output = result.output
 
         var rows: [RealProcess] = []
         for line in output.split(separator: "\n") {
@@ -397,6 +392,7 @@ struct SystemMetrics {
 @MainActor
 final class StatusStore: ObservableObject {
     @Published private(set) var cpu = 0.0
+    @Published private(set) var hasCPUReading = false
     @Published private(set) var memPercent = 0.0
     @Published private(set) var memUsedText = "—"
     @Published private(set) var swapText = "—"
@@ -406,8 +402,8 @@ final class StatusStore: ObservableObject {
     @Published private(set) var downRate = 0.0
     @Published private(set) var upRate = 0.0
     @Published private(set) var load: [Double] = [0, 0, 0]
-    @Published private(set) var battery: (percent: Int, charging: Bool)?
-    @Published private(set) var gpu = 0.0
+    @Published private(set) var battery: SystemMetrics.BatteryInfo?
+    @Published private(set) var gpu: Double?
     @Published private(set) var temperature: Double?
     @Published private(set) var fanRPM: Double?
     @Published private(set) var processes: [RealProcess] = []
@@ -427,10 +423,10 @@ final class StatusStore: ObservableObject {
     private var timer: Timer?
     private var tick = 0
     private var sampling = false
+    private var sampleTask: Task<Void, Never>?
+    private var generation = 0
     private var previousTicks: SystemMetrics.CpuTicks?
     private var previousNetwork: (received: UInt64, sent: UInt64)?
-    private var previousNetworkTime: Date?
-    private var previousDisk: SystemMetrics.DiskInfo?
 
     var uptimeText: String {
         let seconds = Int(ProcessInfo.processInfo.systemUptime)
@@ -460,14 +456,22 @@ final class StatusStore: ObservableObject {
 
     var healthText: String {
         switch healthScore {
-        case 90...: "很好"
-        case 75..<90: "良好"
-        default: "注意"
+        case 90...: "负载平稳"
+        case 75..<90: "负载较高"
+        default: "建议关注"
         }
     }
 
     func start() {
         guard timer == nil else { return }
+        generation += 1
+        previousTicks = nil
+        previousNetwork = nil
+        previousMonotonicTime = nil
+        downRate = 0
+        upRate = 0
+        hasCPUReading = false
+        tick = 0
         tickOnce()
         timer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.tickOnce() }
@@ -477,70 +481,96 @@ final class StatusStore: ObservableObject {
     func stop() {
         timer?.invalidate()
         timer = nil
+        generation += 1
+        sampleTask?.cancel()
+        sampling = false
+    }
+
+    /// 硬件、文件系统和进程读取全部在后台，主线程只发布这一帧结果。
+    private struct Snapshot {
+        let ticks: SystemMetrics.CpuTicks?
+        let memory: SystemMetrics.MemoryInfo?
+        let network: (received: UInt64, sent: UInt64)
+        let time: TimeInterval
+        let load: [Double]
+        var disk: SystemMetrics.DiskInfo?
+        var battery: SystemMetrics.BatteryInfo?
+        var gpu: Double?
+        var thermal: SystemMetrics.ThermalInfo?
+        var processes: [RealProcess]?
     }
 
     private func tickOnce() {
-        tick += 1
         guard !sampling else { return }
+        tick += 1
         sampling = true
-        Task { [weak self] in
-            await self?.sample()
-            self?.sampling = false
+        let revision = generation
+        let heavy = tick % 4 == 1
+        sampleTask = Task { [weak self] in
+            let worker = Task.detached(priority: .utility) {
+                var frame = Snapshot(ticks: SystemMetrics.cpuTicks(), memory: SystemMetrics.memoryInfo(),
+                                     network: SystemMetrics.networkBytes(), time: ProcessInfo.processInfo.systemUptime,
+                                     load: SystemMetrics.loadAverage())
+                if heavy && !Task.isCancelled {
+                    frame.disk = SystemMetrics.diskInfo()
+                    frame.battery = SystemMetrics.battery()
+                    frame.gpu = SystemMetrics.gpuUsage()
+                    frame.thermal = SystemMetrics.thermalInfo()
+                    if !Task.isCancelled { frame.processes = SystemMetrics.topProcesses() }
+                }
+                return frame
+            }
+            let frame = await withTaskCancellationHandler { await worker.value } onCancel: { worker.cancel() }
+            guard let self, !Task.isCancelled, self.generation == revision else { return }
+            self.apply(frame, heavy: heavy)
+            self.sampling = false
         }
     }
 
-    private func sample() async {
-        if let current = SystemMetrics.cpuTicks() {
+    private var previousMonotonicTime: TimeInterval?
+
+    private func apply(_ frame: Snapshot, heavy: Bool) {
+        if let current = frame.ticks {
             if let previous = previousTicks {
                 cpu = SystemMetrics.cpuUsage(from: previous, to: current)
+                hasCPUReading = true
+                cpuHistory = shift(cpuHistory, appending: cpu)
             }
             previousTicks = current
         }
-        cpuHistory = shift(cpuHistory, appending: cpu)
-        load = SystemMetrics.loadAverage()
-
-        let shouldDoHeavy = previousDisk == nil || tick % 2 == 0
-        if shouldDoHeavy {
-            if let memory = SystemMetrics.memoryInfo() {
-                memPercent = Double(memory.usedBytes) / Double(memory.totalBytes) * 100
-                memUsedText = format(memory.usedBytes) + " / " + format(memory.totalBytes)
-                swapText = "交换空间 " + format(memory.swapUsedBytes)
-            }
-            if let disk = SystemMetrics.diskInfo() {
+        load = frame.load
+        if let memory = frame.memory {
+            memPercent = Double(memory.usedBytes) / Double(memory.totalBytes) * 100
+            memUsedText = format(memory.usedBytes) + " / " + format(memory.totalBytes)
+            swapText = "交换空间 " + format(memory.swapUsedBytes)
+        }
+        if let previous = previousNetwork, let previousTime = previousMonotonicTime {
+            let seconds = max(0.1, frame.time - previousTime)
+            // 接口消失、重置或计数回绕不能用无符号减法变成巨大的网速。
+            downRate = Self.counterRate(current: frame.network.received, previous: previous.received, seconds: seconds)
+            upRate = Self.counterRate(current: frame.network.sent, previous: previous.sent, seconds: seconds)
+        }
+        previousNetwork = frame.network
+        previousMonotonicTime = frame.time
+        netHistory = shift(netHistory, appending: downRate)
+        if heavy {
+            if let disk = frame.disk, disk.totalBytes > 0 {
                 diskPercent = Double(disk.usedBytes) / Double(disk.totalBytes) * 100
                 diskUsedText = "已用 " + format(disk.usedBytes)
                 diskFreeText = format(disk.totalBytes - disk.usedBytes)
-                previousDisk = disk
             }
-
-            let now = Date()
-            let counters = SystemMetrics.networkBytes()
-            if let previous = previousNetwork, let previousTime = previousNetworkTime {
-                let seconds = max(0.5, now.timeIntervalSince(previousTime))
-                downRate = Double(counters.received &- previous.received) / seconds
-                upRate = Double(counters.sent &- previous.sent) / seconds
-            }
-            previousNetwork = counters
-            previousNetworkTime = now
-            netHistory = shift(netHistory, appending: downRate)
-            battery = SystemMetrics.battery()
-
-            if let gpuValue = SystemMetrics.gpuUsage() {
-                gpu = gpuValue
-            }
-            let thermal = SystemMetrics.thermalInfo()
-            temperature = thermal.temperature
-            fanRPM = thermal.fanRPM
-            gpuHistory = shift(gpuHistory, appending: gpu)
+            battery = frame.battery
+            gpu = frame.gpu
+            if let value = gpu { gpuHistory = shift(gpuHistory, appending: value) }
+            temperature = frame.thermal?.temperature
+            fanRPM = frame.thermal?.fanRPM
+            if let processes = frame.processes { self.processes = processes }
         }
+    }
 
-        // 进程列表最重(要起 ps 子进程):六秒一次,并放到后台线程,避免阻塞主线程。
-        if tick % 4 == 1 {
-            let procs = await Task.detached(priority: .utility) {
-                SystemMetrics.topProcesses()
-            }.value
-            processes = procs
-        }
+    nonisolated static func counterRate(current: UInt64, previous: UInt64, seconds: TimeInterval) -> Double {
+        guard current >= previous, seconds > 0 else { return 0 }
+        return Double(current - previous) / seconds
     }
 
     private func shift(_ history: [Double], appending value: Double) -> [Double] {

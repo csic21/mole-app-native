@@ -16,12 +16,16 @@ struct OptimizeTaskState: Identifiable {
     let readOnly: Bool
     var status: Status = .idle
     var result: String?
+    var output: String?
+    var duration: TimeInterval?
 }
 
 @MainActor
 final class OptimizeStore: ObservableObject {
     @Published private(set) var states: [OptimizeTaskState] = OptimizeStore.defaultTasks()
     @Published private(set) var running = false
+    @Published var selected: Set<String> = ["spotlight"]
+    @Published private(set) var stopRequested = false
 
     static func defaultTasks() -> [OptimizeTaskState] {
         [
@@ -44,61 +48,74 @@ final class OptimizeStore: ObservableObject {
         ]
     }
 
-    func reset() {
-        states = Self.defaultTasks()
-    }
+    func requestStop() { stopRequested = true }
 
-    func runAll() async {
-        guard !running else { return }
+    func runSelected(_ ids: Set<String>? = nil) async {
+        let requested = ids ?? selected
+        guard !running, !requested.isEmpty else { return }
         running = true
-        reset()
-        for index in states.indices {
+        stopRequested = false
+        for index in states.indices where requested.contains(states[index].id) {
+            states[index].status = .idle
+            states[index].result = nil
+            states[index].output = nil
+            states[index].duration = nil
+        }
+        for index in states.indices where requested.contains(states[index].id) {
+            if stopRequested || Task.isCancelled {
+                states[index].status = .skipped
+                states[index].result = "已停止，未运行"
+                continue
+            }
             states[index].status = .running
+            let start = ProcessInfo.processInfo.systemUptime
             let outcome = await Self.execute(states[index])
+            states[index].duration = ProcessInfo.processInfo.systemUptime - start
             states[index].status = outcome.status
             states[index].result = outcome.message
+            states[index].output = outcome.output
         }
         running = false
     }
 
     // ---------------------------------------------------------- 执行
 
-    private static func execute(_ task: OptimizeTaskState) async -> (status: OptimizeTaskState.Status, message: String) {
+    private static func execute(_ task: OptimizeTaskState) async -> (status: OptimizeTaskState.Status, message: String, output: String) {
         switch task.id {
         case "quicklook":
             let result = await CommandRunner.run("/usr/bin/qlmanage", ["-r", "cache"], timeout: 60)
             if result.code == 0 {
-                return (.done, "缩略图缓存已重建")
+                return (.done, "缩略图缓存已重建", result.combined)
             }
-            return (.skipped, "qlmanage 返回 \(result.code),已跳过")
+            return (.skipped, "qlmanage 返回 \(result.code),已跳过", result.combined)
         case "dns":
-            let script = "do shell script \"/usr/bin/dscacheutil -flushcache; /usr/bin/killall -HUP mDNSResponder\" with administrator privileges"
+            let script = "do shell script \"/usr/bin/dscacheutil -flushcache && /usr/bin/killall -HUP mDNSResponder\" with administrator privileges"
             let result = await CommandRunner.run("/usr/bin/osascript", ["-e", script], timeout: 180)
             if result.code == 0 {
-                return (.done, "DNS 缓存已刷新")
+                return (.done, "DNS 缓存已刷新", result.combined)
             }
             if result.error.contains("User canceled") || result.error.contains("-128") {
-                return (.skipped, "已取消授权,未做任何改动")
+                return (.skipped, "已取消授权,未做任何改动", result.combined)
             }
-            return (.failed, "未能刷新:\(firstLine(result.error))")
+            return (.failed, "未能刷新:\(firstLine(result.error))", result.combined)
         case "spotlight":
             let result = await CommandRunner.run("/usr/bin/mdutil", ["-s", "/"], timeout: 30)
             let output = result.output.lowercased()
             if output.contains("indexing enabled") {
-                return (.done, "索引正常启用,无需处理")
+                return (.done, "索引正常启用,无需处理", result.combined)
             }
             if output.contains("indexing disabled") {
-                return (.done, "索引当前处于关闭状态")
+                return (.done, "索引当前处于关闭状态", result.combined)
             }
-            return (.skipped, "状态未知:\(firstLine(result.output + result.error))")
+            return (.skipped, "状态未知:\(firstLine(result.output + result.error))", result.combined)
         case "disk":
             let result = await CommandRunner.run("/usr/sbin/diskutil", ["verifyVolume", "/"], timeout: 300)
             if result.code == 0 {
-                return (.done, "宗卷校验通过")
+                return (.done, "宗卷校验通过", result.combined)
             }
-            return (.failed, "校验未通过,建议在「磁盘工具」中查看")
+            return (.failed, "校验未通过,建议在「磁盘工具」中查看", result.combined)
         default:
-            return (.skipped, "未实现")
+            return (.skipped, "未实现", "")
         }
     }
 

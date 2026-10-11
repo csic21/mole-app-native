@@ -11,6 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Run tests
+        run: swift test
+
       - name: Build .app package
         run: ./scripts/package_app.sh 0.0.0-ci
 

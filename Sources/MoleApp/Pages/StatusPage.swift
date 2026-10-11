@@ -2,6 +2,7 @@ import SwiftUI
 
 struct StatusPage: View {
     @ObservedObject var store: StatusStore
+    @Environment(\.scenePhase) private var scenePhase
 
     private let columns = [
         GridItem(.adaptive(minimum: 210), spacing: 12),
@@ -23,12 +24,15 @@ struct StatusPage: View {
         }
         .onAppear { store.start() }
         .onDisappear { store.stop() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { store.start() } else { store.stop() }
+        }
     }
 
     private var healthCard: some View {
         StatCard(title: "运行概况", extra: "\(store.chip) · \(store.memoryGB)GB · \(store.osVersion)") {
-            Text("\(store.healthScore) \(store.healthText)").font(.system(size: 24))
-            Text("根据当前负载估算").font(.system(size: 12)).foregroundStyle(Theme.dim2)
+            Text(store.hasCPUReading ? store.healthText : "采样中…").font(.system(size: 24))
+            Text("结合占用与负载估算 · 不代表硬件健康").font(.system(size: 12)).foregroundStyle(Theme.dim2)
             Text("已运行 \(store.uptimeText) · 自 \(store.bootDateText)")
                 .font(.system(size: 12)).foregroundStyle(Theme.dim3)
         }
@@ -36,41 +40,42 @@ struct StatusPage: View {
 
     private var cpuCard: some View {
         StatCard(title: "CPU", extra: store.temperature.map { String(format: "%.0f°C", $0) } ?? "—") {
-            Text("\(Int(store.cpu)) %").font(.system(size: 24))
+            Text(store.hasCPUReading ? "\(Int(store.cpu)) %" : "—").font(.system(size: 24))
             SparkView(values: store.cpuHistory)
-            Text("\(store.coreCount) 核 · 实时采样每 1.5 秒")
+            Text("\(store.coreCount) 核 · 前台采样每 1.5 秒")
                 .font(.system(size: 12)).foregroundStyle(Theme.dim3)
         }
     }
 
     private var gpuCard: some View {
         StatCard(title: "GPU", extra: "利用率") {
-            Text("\(Int(store.gpu)) %").font(.system(size: 24))
+            Text(store.gpu.map { "\(Int($0)) %" } ?? "—").font(.system(size: 24))
             SparkView(values: store.gpuHistory, tone: Color(hex: 0xC4A0E0))
-            Text("统一内存架构 · 真实利用率")
+            Text(store.gpu == nil ? "此机型未提供利用率" : "硬件利用率 · 每 6 秒更新")
                 .font(.system(size: 12)).foregroundStyle(Theme.dim3)
         }
     }
 
     private var memCard: some View {
-        StatCard(title: "内存", extra: "压力 \(Int(store.memPercent))%") {
+        StatCard(title: "内存", extra: "占用估算") {
             Text("\(Int(store.memPercent)) %").font(.system(size: 24))
             BarView(value: store.memPercent)
             Text(store.memUsedText).font(.system(size: 12)).foregroundStyle(Theme.dim3)
+            Text(store.swapText).font(.system(size: 11)).foregroundStyle(Theme.dim3)
         }
     }
 
     private var batteryCard: some View {
-        StatCard(title: "电池", extra: store.battery == nil ? "台式" : "接通电源") {
+        StatCard(title: "电池", extra: store.battery.map { $0.onAC ? "接通电源" : "电池供电" } ?? "未检测到") {
             if let battery = store.battery {
                 Text("\(battery.percent) %").font(.system(size: 24))
-                Text(battery.charging ? "电源供电 · 充电中" : "电池供电")
+                Text(battery.charging ? "充电中" : (battery.onAC ? "电源供电 · 未充电" : "电池供电"))
                     .font(.system(size: 12)).foregroundStyle(Theme.dim2)
-                Text("循环次数需 SMC,下一步接入")
+                Text("电量与供电状态 · 每 6 秒更新")
                     .font(.system(size: 12)).foregroundStyle(Theme.dim3)
             } else {
                 Text("—").font(.system(size: 24))
-                Text("没有内置电池").font(.system(size: 12)).foregroundStyle(Theme.dim2)
+                Text("未读取到内置电池").font(.system(size: 12)).foregroundStyle(Theme.dim2)
                 Text("台式 Mac 或电池不可读")
                     .font(.system(size: 12)).foregroundStyle(Theme.dim3)
             }
@@ -104,7 +109,7 @@ struct StatusPage: View {
                 Text(String(format: "风扇 %.0f RPM", fan))
                     .font(.system(size: 12)).foregroundStyle(Theme.dim3)
             } else {
-                Text("此机型风扇不可读(无 SMC 键)")
+                Text("此机型未提供风扇转速")
                     .font(.system(size: 12)).foregroundStyle(Theme.dim3)
             }
         }

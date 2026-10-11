@@ -72,12 +72,24 @@ struct ContentView: View {
                         .frame(maxWidth: 1080)
                         .frame(maxWidth: .infinity)
                 }
+                .id(pageIdentity)
+                if tab == .clean && cleanStore.phase == .list {
+                    CleanSelectionBar(store: cleanStore)
+                }
             }
             .background(Theme.canvas)
         }
         .foregroundStyle(Theme.star)
         .background(WindowConfigurator().frame(width: 0, height: 0))
         .task { selfUpdate.checkOnce() }
+    }
+
+    private var pageIdentity: String {
+        switch tab {
+        case .clean: tab.rawValue + "|" + String(describing: cleanStore.phase)
+        case .analyze: tab.rawValue + "|" + analyzeStore.current.path
+        default: tab.rawValue
+        }
     }
 
     @ViewBuilder
@@ -130,6 +142,7 @@ private struct Sidebar: View {
                     .contentShape(RoundedRectangle(cornerRadius: 8))
                 }
                 .buttonStyle(.plain)
+                .keyboardShortcut(KeyEquivalent(Character(String((Tab.allCases.firstIndex(of: item) ?? 0) + 1))), modifiers: .command)
                 .accessibilityAddTraits(tab == item ? [.isSelected] : [])
                 .padding(.bottom, 5)
             }

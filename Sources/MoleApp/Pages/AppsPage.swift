@@ -8,7 +8,9 @@ struct AppsPage: View {
     @ObservedObject var loginStore: LoginItemsStore
     @ObservedObject var updateStore: UpdateStore
     @State private var sub: Sub = .uninstall
-    @State private var selected: Set<String> = []
+    private enum Sort: String, CaseIterable { case name = "名称", size = "占用大小" }
+    @State private var search = ""
+    @State private var sort: Sort = .name
     @State private var expanded: String?
     @State private var leftoverCache: [String: [LeftoverItem]] = [:]
     @State private var pendingEntry: LoginEntry?
@@ -16,8 +18,13 @@ struct AppsPage: View {
 
     private var apps: [ScannedApp] { store.apps }
 
-    private var selectedBytes: Int64 {
-        apps.filter { selected.contains($0.id) }.compactMap(\.sizeBytes).reduce(0, +)
+    private var visibleApps: [ScannedApp] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filtered = apps.filter { query.isEmpty || $0.name.localizedStandardContains(query) || $0.bundleID.localizedStandardContains(query) }
+        return filtered.sorted {
+            if sort == .size && $0.sizeBytes != $1.sizeBytes { return ($0.sizeBytes ?? -1) > ($1.sizeBytes ?? -1) }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
     }
 
     var body: some View {
@@ -31,10 +38,11 @@ struct AppsPage: View {
             }
         }
         .task {
-            if store.apps.isEmpty && !store.scanning {
+            if !store.hasScanned && !store.scanning && !store.stopped {
                 store.refresh()
             }
         }
+        .onChange(of: store.generation) { _, _ in leftoverCache = [:]; expanded = nil }
     }
 
     private var subnav: some View {
@@ -61,6 +69,9 @@ struct AppsPage: View {
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.dim3)
             }
+            if store.measuring {
+                Button("停止测量") { store.stopMeasuring() }.buttonStyle(.plain).foregroundStyle(Theme.accent)
+            }
             Button("重新扫描") { store.refresh() }
                 .buttonStyle(.plain)
                 .font(.system(size: 12))
@@ -72,10 +83,20 @@ struct AppsPage: View {
 
     private var uninstallList: some View {
         LazyVStack(spacing: 2) {
-            if store.scanning {
+            HStack(spacing: 14) {
+                TextField("搜索应用名称或 Bundle ID", text: $search)
+                    .textFieldStyle(.roundedBorder).frame(maxWidth: 340)
+                    .accessibilityLabel("搜索应用")
+                Picker("排序", selection: $sort) {
+                    ForEach(Sort.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }.frame(width: 170).disabled(store.measuring).help(store.measuring ? "测量完成后可按大小排序" : "按名称或占用大小排序")
+                Spacer()
+                Text("\(visibleApps.count) / \(apps.count) 个应用").font(Theme.monoSmall).foregroundStyle(Theme.dim3)
+            }.padding(.bottom, 12)
+            if store.scanning && apps.isEmpty {
                 scanningPlaceholder
             } else if apps.isEmpty {
-                Text("没有在 /Applications 找到应用")
+                Text(store.stopped ? "扫描已停止，可重新扫描" : "没有在 /Applications 与 ~/Applications 找到应用")
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.dim2)
                     .frame(maxWidth: .infinity)
@@ -90,27 +111,26 @@ struct AppsPage: View {
             }
 
             // ForEach 直接挂在 LazyVStack 下:滚动时只渲染可见行。
-            ForEach(store.scanning || apps.isEmpty ? [] : apps) { app in
-                RowBox(selected: selected.contains(app.id)) {
+            ForEach(visibleApps) { app in
+                RowBox {
+                    Button { expanded = expanded == app.id ? nil : app.id } label: {
                     HStack(spacing: 12) {
                         appIcon(app)
                         Text(app.name)
                             .font(.system(size: 13.5))
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        Text("\(app.version) · \(AppsStore.formatBytes(app.sizeBytes)) · \(app.modified)")
+                        Text("\(app.version) · \(app.modified)")
                             .font(.system(size: 12.5))
                             .foregroundStyle(Theme.dim2)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                        Text(AppsStore.formatBytes(app.sizeBytes))
+                        Text(app.sizeBytes == nil ? (store.measuring ? "测量中…" : "未测量") : (app.partial ? "≥ " : "") + AppsStore.formatBytes(app.sizeBytes))
                             .font(Theme.mono)
                             .foregroundStyle(Theme.dim2)
-                        CheckView(on: selected.contains(app.id)) { toggle(app.id) }
+                        Image(systemName: expanded == app.id ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11)).foregroundStyle(Theme.accent)
                     }
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        expanded = expanded == app.id ? nil : app.id
-                        loadLeftoversIfNeeded(app)
-                    }
+                    }.buttonStyle(.plain).accessibilityLabel("\(app.name)，查看关联文件")
                 }
 
                 if expanded == app.id {
@@ -118,13 +138,8 @@ struct AppsPage: View {
                 }
             }
 
-            if !store.scanning && !apps.isEmpty {
-                FootBar(note: footerNote) {
-                    PillButton(title: "取消选择", disabled: selected.isEmpty) {
-                        selected = []
-                        expanded = nil
-                    }
-                }
+            if !apps.isEmpty && visibleApps.isEmpty {
+                ContentUnavailableView.search(text: search).padding(.vertical, 30)
             }
         }
     }
@@ -141,6 +156,7 @@ struct AppsPage: View {
                     .frame(width: 28, height: 28)
             }
         }
+        .task { store.loadIcon(for: app.id) }
     }
 
     private var scanningPlaceholder: some View {
@@ -155,15 +171,10 @@ struct AppsPage: View {
         .padding(.top, 70)
     }
 
-    private var footerNote: String {
-        let sizeText = selectedBytes > 0 ? AppsStore.formatBytes(selectedBytes) : "大小测量中"
-        return "\(selected.count) 个 App · \(sizeText) · 可查看关联文件；暂不执行卸载"
-    }
-
     private func expandPanel(_ app: ScannedApp) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             HStack {
-                Text("清除")
+                Text("关联文件 · 只读查看")
                     .font(.system(size: 12))
                     .foregroundStyle(Theme.dim2)
                 Spacer()
@@ -190,7 +201,7 @@ struct AppsPage: View {
                     ForEach(items) { item in
                         RowBox {
                             HStack(spacing: 12) {
-                                CheckView(on: true)
+                                Image(systemName: "doc").foregroundStyle(Theme.dim3)
                                 Text(item.kind)
                                     .font(.system(size: 12.5))
                                     .foregroundStyle(Theme.star.opacity(0.72))
@@ -199,7 +210,7 @@ struct AppsPage: View {
                                     .font(Theme.monoSmall)
                                     .foregroundStyle(Theme.dim3)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                Text(AppsStore.formatBytes(item.sizeBytes))
+                                Text((item.partial ? "≥ " : "") + AppsStore.formatBytes(item.sizeBytes))
                                     .font(Theme.mono)
                                     .foregroundStyle(Theme.dim2)
                             }
@@ -222,31 +233,22 @@ struct AppsPage: View {
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.line))
         .padding(.vertical, 2)
         .padding(.horizontal, 6)
+        .task(id: app.id) { await loadLeftoversIfNeeded(app) }
     }
 
-    private func loadLeftoversIfNeeded(_ app: ScannedApp) {
+    private func loadLeftoversIfNeeded(_ app: ScannedApp) async {
         guard leftoverCache[app.id] == nil else { return }
-        Task.detached(priority: .userInitiated) {
-            let items = AppsStore.leftovers(for: app)
-            await MainActor.run {
-                leftoverCache[app.id] = items
-            }
-        }
-    }
-
-    private func toggle(_ id: String) {
-        if selected.contains(id) {
-            selected.remove(id)
-        } else {
-            selected.insert(id)
-        }
+        let task = Task.detached(priority: .userInitiated) { AppsStore.leftovers(for: app) }
+        let items = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
+        guard !Task.isCancelled else { return }
+        leftoverCache[app.id] = items
     }
 
     // ---------------------------------------------------------- 更新检查与启动项管理
 
     private var updateList: some View {
         LazyVStack(spacing: 2) {
-            Text("检查来源:Sparkle 应用与 Homebrew;App Store 更新由系统设置负责")
+            Text("检查来源:Sparkle 应用与 Homebrew;App Store 更新请在 App Store 中查看")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.dim2)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -263,7 +265,7 @@ struct AppsPage: View {
                 .frame(maxWidth: .infinity)
                 .padding(.top, 40)
             } else if updateStore.updates.isEmpty {
-                Text(updateStore.lastChecked == nil ? "尚未检查" : "全部是最新版本")
+                Text(updateStore.lastChecked == nil ? "尚未检查" : "在已检查的来源中未发现可用更新")
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.dim2)
                     .frame(maxWidth: .infinity)
@@ -329,7 +331,8 @@ struct AppsPage: View {
         if store.apps.isEmpty {
             if !store.scanning { store.refresh() }
             var waited = 0
-            while store.apps.isEmpty && waited < 100 {
+            while store.scanning && waited < 100 {
+                guard !Task.isCancelled else { return }
                 try? await Task.sleep(nanoseconds: 300_000_000)
                 waited += 1
             }
