@@ -6,6 +6,8 @@ enum AppVersion {
     static let development = "0.4.2"
 
     static var current: String {
-        (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? development
+        // SwiftPM/XCTest can supply a host bundle version unrelated to Qili.
+        guard Bundle.main.bundleIdentifier == "com.csic21.moleapp" else { return development }
+        return (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? development
     }
 }

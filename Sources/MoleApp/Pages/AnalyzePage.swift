@@ -4,8 +4,35 @@ import SwiftUI
 struct AnalyzePage: View {
     @ObservedObject var store: AnalyzeStore
     @State private var search = ""
-    @AppStorage("analyze.showHidden") private var showHidden = true
-    @AppStorage("analyze.listMode") private var listMode = true
+    @AppStorage private var showHidden: Bool
+    @AppStorage private var listMode: Bool
+
+    init(store: AnalyzeStore) {
+        self.store = store
+        _showHidden = AppStorage(wrappedValue: true, "analyze.showHidden")
+        _listMode = AppStorage(wrappedValue: true, "analyze.listMode")
+    }
+
+#if DEBUG
+    @MainActor
+    init(snapshotStore: AnalyzeStore, listMode: Bool = true, showHidden: Bool = true) {
+        precondition(!snapshotStore.allowsLiveOperations, "Snapshots require an inert store")
+        store = snapshotStore
+        // Private volatile preferences prevent captures from reading or changing app preferences.
+        let suite = "QiliPreview.AnalyzePage.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.setVolatileDomain(["analyze.listMode": listMode, "analyze.showHidden": showHidden], forName: suite)
+        _showHidden = AppStorage(wrappedValue: showHidden, "analyze.showHidden", store: defaults)
+        _listMode = AppStorage(wrappedValue: listMode, "analyze.listMode", store: defaults)
+    }
+#endif
+
+    private var hiddenPreference: Binding<Bool> {
+        Binding(get: { showHidden }, set: { if store.allowsLiveOperations { showHidden = $0 } })
+    }
+    private var listPreference: Binding<Bool> {
+        Binding(get: { listMode }, set: { if store.allowsLiveOperations { listMode = $0 } })
+    }
     private let columns = [GridItem(.adaptive(minimum: 190), spacing: 10)]
     private let legendColumns = [GridItem(.adaptive(minimum: 280), spacing: 20)]
     private let palette: [Color] = [Color(hex: 0x8DAE9D), Color(hex: 0x879BB4), Color(hex: 0xB4A47E),
@@ -38,16 +65,16 @@ struct AnalyzePage: View {
                         }
                     }
                 }
-                Button { NSWorkspace.shared.activateFileViewerSelecting([store.current]) } label: {
+                Button { reveal(store.current) } label: {
                     Label("访达", systemImage: "arrow.up.forward.square")
                 }.buttonStyle(.plain).fixedSize().help("在访达中显示当前文件夹")
             }.font(.system(size: 12.5)).foregroundStyle(Theme.dim2)
             if store.totalBytes > 0 { distribution }
             HStack(spacing: 14) {
                 TextField("搜索当前文件夹", text: $search).textFieldStyle(.roundedBorder).frame(maxWidth: 300)
-                Toggle("显示隐藏项", isOn: $showHidden).toggleStyle(.checkbox)
+                Toggle("显示隐藏项", isOn: hiddenPreference).toggleStyle(.checkbox)
                 Spacer()
-                Picker("显示方式", selection: $listMode) {
+                Picker("显示方式", selection: listPreference) {
                     Text("列表").tag(true)
                     Text("卡片").tag(false)
                 }.pickerStyle(.segmented).labelsHidden().frame(width: 130)
@@ -77,6 +104,7 @@ struct AnalyzePage: View {
                 .font(.system(size: 12)).foregroundStyle(Theme.dim2)
         }
         .task {
+            guard store.allowsLiveOperations else { return }
             if !store.hasLoaded { store.rescan() }
         }
         .onChange(of: store.current) { _, _ in search = "" }
@@ -236,7 +264,11 @@ struct AnalyzePage: View {
     }
 
     private func revealButton(_ item: AnalyzeItem) -> some View {
-        Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
+        Button("在访达中显示") { reveal(item.url) }
+    }
+    private func reveal(_ url: URL) {
+        guard store.allowsLiveOperations else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
     private func sizeText(_ item: AnalyzeItem) -> String {
         guard let size = item.sizeBytes else { return store.sizing ? "测量中…" : "未测量" }
@@ -247,10 +279,12 @@ struct AnalyzePage: View {
     }
     private func share(_ item: AnalyzeItem) -> String { item.sizeBytes == nil ? "—" : String(format: "%.1f%%", fraction(item)) }
     private func enterOrReveal(_ item: AnalyzeItem) {
+        guard store.allowsLiveOperations else { return }
         if item.isDirectory { store.enter(item) }
-        else { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
+        else { reveal(item.url) }
     }
     private func chooseFolder() {
+        guard store.allowsLiveOperations else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true

@@ -22,7 +22,35 @@ final class LoginItemsStore: ObservableObject {
     @Published private(set) var scanning = false
     @Published private(set) var errors: [String: String] = [:]
 
+    /// DEBUG snapshots never inspect or change the machine's launch services.
+    private(set) var allowsLiveOperations = true
+
+    init() {}
+
+#if DEBUG
+    struct Snapshot {
+        var entries: [LoginEntry] = []
+        var scanning = false
+        var errors: [String: String] = [:]
+    }
+
+    convenience init(snapshot: Snapshot) {
+        self.init()
+        precondition(snapshot.entries.allSatisfy { entry in
+            URL(fileURLWithPath: entry.id).standardizedFileURL.path.hasPrefix("/QiliPreview/")
+                && (entry.program.map {
+                    URL(fileURLWithPath: $0).standardizedFileURL.path.hasPrefix("/QiliPreview/")
+                } ?? true)
+        }, "Snapshot fixtures must use synthetic /QiliPreview paths")
+        allowsLiveOperations = false
+        entries = snapshot.entries
+        scanning = snapshot.scanning
+        errors = snapshot.errors
+    }
+#endif
+
     func scan() {
+        guard allowsLiveOperations else { return }
         scanning = true
         Task { [weak self] in
             let discovered = await Task.detached(priority: .userInitiated) {
@@ -36,6 +64,7 @@ final class LoginItemsStore: ObservableObject {
     }
 
     func refreshStates() async {
+        guard allowsLiveOperations else { return }
         let uid = getuid()
         let (loaded, disabled) = await Task.detached(priority: .utility) {
             (Self.loadedLabels(uid: uid), Self.disabledLabels(uid: uid))
@@ -50,6 +79,7 @@ final class LoginItemsStore: ObservableObject {
 
     /// 用户级:enable/disable 持久生效;disable 时顺带停掉当前实例。
     func setEnabled(_ entry: LoginEntry, enabled: Bool) async {
+        guard allowsLiveOperations else { return }
         guard entry.scope == .user else {
             errors[entry.id] = "系统级条目需要管理员权限,暂不支持"
             return

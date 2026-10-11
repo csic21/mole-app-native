@@ -26,7 +26,41 @@ final class UpdateStore: ObservableObject {
     @Published private(set) var messages: [String: String] = [:]
     @Published private(set) var busyID: String?
 
+    /// DEBUG snapshots cannot read bundles, access update feeds, or install updates.
+    private(set) var allowsLiveOperations = true
+
+    init() {}
+
+#if DEBUG
+    struct Snapshot {
+        var updates: [UpdateInfo] = []
+        var checking = false
+        var progress = ""
+        var lastChecked: Date? = nil
+        var messages: [String: String] = [:]
+        var busyID: String? = nil
+    }
+
+    convenience init(snapshot: Snapshot) {
+        self.init()
+        precondition(snapshot.updates.allSatisfy { info in
+            if case .sparkle(let app) = info.action {
+                return app.standardizedFileURL.path.hasPrefix("/QiliPreview/")
+            }
+            return true
+        }, "Snapshot fixtures must use synthetic /QiliPreview paths")
+        allowsLiveOperations = false
+        updates = snapshot.updates
+        checking = snapshot.checking
+        progress = snapshot.progress
+        lastChecked = snapshot.lastChecked
+        messages = snapshot.messages
+        busyID = snapshot.busyID
+    }
+#endif
+
     func check(apps: [ScannedApp], force: Bool = false) async {
+        guard allowsLiveOperations else { return }
         guard !checking else { return }
         if !force, let last = lastChecked, Date().timeIntervalSince(last) < 300 { return }
         checking = true
@@ -52,6 +86,7 @@ final class UpdateStore: ObservableObject {
     }
 
     func perform(_ info: UpdateInfo) async {
+        guard allowsLiveOperations else { return }
         switch info.action {
         case .sparkle(let app):
             NSWorkspace.shared.open(app)

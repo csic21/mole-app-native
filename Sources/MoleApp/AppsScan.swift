@@ -33,9 +33,42 @@ final class AppsStore: ObservableObject {
     @Published private(set) var hasScanned = false
     @Published private(set) var stopped = false
 
+    /// DEBUG snapshots keep every filesystem entry point inert, even from view tasks.
+    private(set) var allowsLiveOperations = true
     private var sizeTask: Task<Void, Never>?
 
+    init() {}
+
+#if DEBUG
+    struct Snapshot {
+        var apps: [ScannedApp] = []
+        var scanning = false
+        var sizedCount = 0
+        var measuring = false
+        var generation = 0
+        var hasScanned = true
+        var stopped = false
+    }
+
+    convenience init(snapshot: Snapshot) {
+        self.init()
+        precondition(snapshot.apps.allSatisfy {
+            $0.url.standardizedFileURL.path.hasPrefix("/QiliPreview/")
+                && URL(fileURLWithPath: $0.id).standardizedFileURL.path.hasPrefix("/QiliPreview/")
+        }, "Snapshot fixtures must use synthetic /QiliPreview paths")
+        allowsLiveOperations = false
+        apps = snapshot.apps
+        scanning = snapshot.scanning
+        sizedCount = snapshot.sizedCount
+        measuring = snapshot.measuring
+        generation = snapshot.generation
+        hasScanned = snapshot.hasScanned
+        stopped = snapshot.stopped
+    }
+#endif
+
     func refresh() {
+        guard allowsLiveOperations else { return }
         sizeTask?.cancel()
         generation += 1
         stopped = false
@@ -57,6 +90,7 @@ final class AppsStore: ObservableObject {
     }
 
     func stopMeasuring() {
+        guard allowsLiveOperations else { return }
         sizeTask?.cancel()
         stopped = true
         scanning = false
@@ -64,6 +98,7 @@ final class AppsStore: ObservableObject {
     }
 
     func loadIcon(for id: String) {
+        guard allowsLiveOperations else { return }
         guard let index = apps.firstIndex(where: { $0.id == id }), apps[index].icon == nil else { return }
         apps[index].icon = NSWorkspace.shared.icon(forFile: apps[index].url.path)
     }

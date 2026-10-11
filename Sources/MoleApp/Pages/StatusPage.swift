@@ -32,9 +32,10 @@ struct StatusPage: View {
             }
             processTable
         }
-        .onAppear { store.start() }
-        .onDisappear { store.stop() }
+        .onAppear { if store.allowsLiveOperations { store.start() } }
+        .onDisappear { if store.allowsLiveOperations { store.stop() } }
         .onChange(of: scenePhase) { _, phase in
+            guard store.allowsLiveOperations else { return }
             if phase == .active { store.start() } else { store.stop() }
         }
     }

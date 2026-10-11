@@ -5,8 +5,13 @@ import XCTest
 @testable import MoleApp
 
 /// The normal test run checks fixture safety. PNG capture is explicitly opt-in.
-/// Nothing here creates ContentView, MoleApp, polling stores, or a live scan.
+/// Nothing here creates ContentView, MoleApp, live polling, or a live scan.
 final class DesignSnapshotTests: XCTestCase {
+    func testRunnerVersionDoesNotReplaceQiliVersion() {
+        XCTAssertEqual(AppVersion.current, AppVersion.development,
+                       "The XCTest host's bundle version must not appear in Qili snapshots.")
+    }
+
     @MainActor
     func testNewStoreWaitsForAnExplicitScan() {
         let store = CleanStore()
@@ -105,6 +110,117 @@ final class DesignSnapshotTests: XCTestCase {
     }
 
     @MainActor
+    func testAnalyzeSnapshotsKeepSyntheticNavigationInert() throws {
+        for scenario in AnalyzeDesignScenario.allCases {
+            let store = scenario.makeStore()
+            let path = store.path
+            let ids = store.items.map(\.id)
+            let bytes = store.totalBytes
+            let error = store.error
+            let stopped = store.stopped
+            XCTAssertFalse(store.allowsLiveOperations)
+            XCTAssertTrue(path.allSatisfy { $0.path.hasPrefix("/QiliPreview") })
+            if let folder = store.items.first(where: \.isDirectory) { store.enter(folder) }
+            store.goUp()
+            store.jump(to: 0)
+            store.open(URL(fileURLWithPath: "/QiliPreview/DoNotRead"))
+            store.rescan()
+            store.stop()
+            XCTAssertEqual(store.path, path)
+            XCTAssertEqual(store.items.map(\.id), ids)
+            XCTAssertEqual(store.totalBytes, bytes)
+            XCTAssertEqual(store.error, error)
+            XCTAssertEqual(store.stopped, stopped)
+            XCTAssertFalse(store.sizing)
+        }
+    }
+
+    @MainActor
+    func testStatusSnapshotsNeverStartPolling() {
+        for scenario in StatusDesignScenario.allCases {
+            let store = scenario.makeStore()
+            let cpu = store.cpu
+            let reading = store.hasCPUReading
+            let history = store.cpuHistory
+            let processes = store.processes.map(\.id)
+            let downRate = store.downRate
+            XCTAssertFalse(store.allowsLiveOperations)
+            store.start()
+            store.stop()
+            store.start()
+            XCTAssertEqual(store.cpu, cpu)
+            XCTAssertEqual(store.hasCPUReading, reading)
+            XCTAssertEqual(store.cpuHistory, history)
+            XCTAssertEqual(store.processes.map(\.id), processes)
+            XCTAssertEqual(store.downRate, downRate)
+            XCTAssertEqual(store.hostName, "Qili Preview Mac")
+            XCTAssertEqual(store.uptimeText, "2 天 4 小时")
+            XCTAssertEqual(store.bootDateText, "10 月 9 日")
+        }
+    }
+
+    @MainActor
+    func testAppSnapshotsBlockDiscoveryUpdateAndLoginActions() async throws {
+        let fixture = AppDesignFixtures()
+        let appIDs = fixture.apps.apps.map(\.id)
+        let generation = fixture.apps.generation
+        let loginIDs = fixture.login.entries.map(\.id)
+        let loaded = fixture.login.entries.map(\.loaded)
+        let updateIDs = fixture.updates.updates.map(\.id)
+        let checked = fixture.updates.lastChecked
+        XCTAssertFalse(fixture.apps.allowsLiveOperations)
+        XCTAssertFalse(fixture.login.allowsLiveOperations)
+        XCTAssertFalse(fixture.updates.allowsLiveOperations)
+        XCTAssertTrue(fixture.apps.apps.allSatisfy { $0.url.path.hasPrefix("/QiliPreview/") })
+        fixture.apps.refresh()
+        fixture.apps.stopMeasuring()
+        for app in fixture.apps.apps { fixture.apps.loadIcon(for: app.id) }
+        fixture.login.scan()
+        await fixture.login.refreshStates()
+        // A read-only system entry also prevents launchctl mutation if a guard regresses.
+        let systemEntry = try XCTUnwrap(fixture.login.entries.first { $0.scope == .system })
+        await fixture.login.setEnabled(systemEntry, enabled: true)
+        await fixture.updates.check(apps: fixture.apps.apps, force: true)
+        // Only a nonexistent synthetic app URL is passed, never a brew install action.
+        await fixture.updates.perform(try XCTUnwrap(fixture.updates.updates.first))
+        XCTAssertEqual(fixture.apps.apps.map(\.id), appIDs)
+        XCTAssertEqual(fixture.apps.generation, generation)
+        XCTAssertFalse(fixture.apps.scanning)
+        XCTAssertFalse(fixture.apps.measuring)
+        XCTAssertFalse(fixture.apps.stopped)
+        XCTAssertEqual(fixture.login.entries.map(\.id), loginIDs)
+        XCTAssertEqual(fixture.login.entries.map(\.loaded), loaded)
+        XCTAssertTrue(fixture.login.errors.isEmpty)
+        XCTAssertFalse(fixture.login.scanning)
+        XCTAssertEqual(fixture.updates.updates.map(\.id), updateIDs)
+        XCTAssertEqual(fixture.updates.lastChecked, checked)
+        XCTAssertTrue(fixture.updates.messages.isEmpty)
+        XCTAssertFalse(fixture.updates.checking)
+        XCTAssertNil(fixture.updates.busyID)
+    }
+
+    @MainActor
+    func testMaintenanceSnapshotsNeverRunCommands() async {
+        for scenario in OptimizeDesignScenario.allCases {
+            let store = scenario.makeStore()
+            let statuses = store.states.map(\.status)
+            let results = store.states.map(\.result)
+            let selected = store.selected
+            XCTAssertFalse(store.allowsLiveOperations)
+            // Synthetic IDs provide a second barrier: they have no command implementation.
+            XCTAssertTrue(store.states.allSatisfy { $0.id.hasPrefix("preview-") })
+            store.requestStop()
+            await store.runSelected()
+            await store.runSelected(Set(store.states.map(\.id)))
+            XCTAssertEqual(store.states.map(\.status), statuses)
+            XCTAssertEqual(store.states.map(\.result), results)
+            XCTAssertEqual(store.selected, selected)
+            XCTAssertFalse(store.running)
+            XCTAssertFalse(store.stopRequested)
+        }
+    }
+
+    @MainActor
     func testCaptureNativeDesignSnapshots() throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["QILI_CAPTURE_SNAPSHOTS"] == "1" else {
@@ -123,23 +239,27 @@ final class DesignSnapshotTests: XCTestCase {
             XCTFail("Native capture needs a graphical macOS login session with a screen.")
             return
         }
+        let oldTimezone = NSTimeZone.default
+        NSTimeZone.default = TimeZone(secondsFromGMT: 0)!
+        defer { NSTimeZone.default = oldTimezone }
         let oldAppearance = app.appearance
         app.appearance = NSAppearance(named: .darkAqua)
         defer { app.appearance = oldAppearance }
 
         let sizes = [NSSize(width: 1060, height: 680), NSSize(width: 1220, height: 820)]
-        let plans: [(scenario: DesignScenario, size: NSSize, increasedContrast: Bool)] =
-            sizes.flatMap { size in DesignScenario.allCases.map { ($0, size, false) } }
-            + [(.selection, sizes[0], true), (.partial, sizes[0], true)]
+        let scenes = makeScenes()
+        let contrastScenes = scenes.filter { $0.page == .clean && ["selection", "partial"].contains($0.scenario) }
+        let plans: [(scene: SnapshotScene, size: NSSize, increasedContrast: Bool)] =
+            sizes.flatMap { size in scenes.map { ($0, size, false) } }
+            + contrastScenes.map { ($0, sizes[0], true) }
         var captures: [[String: Any]] = []
         for plan in plans {
-            let scenario = plan.scenario
+            let fixture = plan.scene
             let size = plan.size
-            let store = scenario.makeStore()
-            let scene = WorkspaceShell(tab: .constant(.clean), scrollKey: scenario.rawValue) {
-                CleanPage(store: store)
+            let scene = WorkspaceShell(tab: .constant(fixture.page), scrollKey: fixture.scenario) {
+                fixture.content
             } footer: {
-                if store.phase == .list { CleanSelectionBar(store: store) }
+                fixture.footer
             }
             .environment(\.locale, Locale(identifier: "zh_CN"))
             .environment(\.colorScheme, .dark)
@@ -149,13 +269,14 @@ final class DesignSnapshotTests: XCTestCase {
             }
 
             let variant = plan.increasedContrast ? "-increased-contrast" : ""
-            let name = "clean-\(scenario.rawValue)-\(Int(size.width))x\(Int(size.height))\(variant).png"
+            let name = "\(fixture.page.rawValue)-\(fixture.scenario)-\(Int(size.width))x\(Int(size.height))\(variant).png"
             let destination = output.appendingPathComponent(name)
             try capture(scene, size: size, increasedContrast: plan.increasedContrast, to: destination)
-            XCTAssertFalse(store.allowsLiveOperations)
             captures.append([
                 "file": name,
-                "scenario": scenario.rawValue,
+                "page": fixture.page.rawValue,
+                "sourceView": fixture.sourceView,
+                "scenario": fixture.scenario,
                 "width": Int(size.width),
                 "height": Int(size.height),
                 "scale": 1,
@@ -168,6 +289,8 @@ final class DesignSnapshotTests: XCTestCase {
             "runID": environment["QILI_SNAPSHOT_RUN_ID"] ?? UUID().uuidString,
             "renderer": "NSHostingView + NSWindow native frame + NSView.cacheDisplay",
             "locale": "zh_CN",
+            "timezone": "UTC",
+            "captureCount": captures.count,
             "data": "Synthetic /QiliPreview fixtures; live operations disabled",
             "system": ProcessInfo.processInfo.operatingSystemVersionString,
             "note": "Native fonts and AppKit rendering vary with the macOS release. These are review captures, not cross-OS pixel baselines.",
@@ -175,12 +298,52 @@ final class DesignSnapshotTests: XCTestCase {
         ]
         try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
             .write(to: output.appendingPathComponent("manifest.json"), options: .atomic)
-        XCTAssertEqual(captures.count, DesignScenario.allCases.count * sizes.count + 2)
+        XCTAssertEqual(captures.count, 44)
+        XCTAssertEqual(Set(captures.compactMap { $0["page"] as? String }), Set(Tab.allCases.map(\.rawValue)))
+    }
+
+    @MainActor
+    private func makeScenes() -> [SnapshotScene] {
+        var scenes = DesignScenario.allCases.map { scenario in
+            let store = scenario.makeStore()
+            XCTAssertFalse(store.allowsLiveOperations)
+            return SnapshotScene(page: .clean, scenario: scenario.rawValue,
+                content: AnyView(CleanPage(store: store)),
+                footer: store.phase == .list ? AnyView(CleanSelectionBar(store: store)) : AnyView(EmptyView()))
+        }
+        for scenario in AnalyzeDesignScenario.allCases {
+            let store = scenario.makeStore()
+            XCTAssertFalse(store.allowsLiveOperations)
+            scenes.append(SnapshotScene(page: .analyze, scenario: scenario.rawValue,
+                content: AnyView(AnalyzePage(snapshotStore: store, listMode: scenario != .cards, showHidden: true))))
+        }
+        for scenario in StatusDesignScenario.allCases {
+            let store = scenario.makeStore()
+            XCTAssertFalse(store.allowsLiveOperations)
+            scenes.append(SnapshotScene(page: .status, scenario: scenario.rawValue,
+                content: AnyView(StatusPage(store: store))))
+        }
+        let sections: [(String, AppsPage.PreviewSection)] = [
+            ("inventory", .inventory), ("updates", .updates), ("login", .login),
+        ]
+        for (name, section) in sections {
+            let fixture = AppDesignFixtures()
+            scenes.append(SnapshotScene(page: .apps, scenario: name,
+                content: AnyView(AppsPage(store: fixture.apps, loginStore: fixture.login,
+                                          updateStore: fixture.updates, previewSection: section))))
+        }
+        for scenario in OptimizeDesignScenario.allCases {
+            let store = scenario.makeStore()
+            XCTAssertFalse(store.allowsLiveOperations)
+            scenes.append(SnapshotScene(page: .optimize, scenario: scenario.rawValue,
+                content: AnyView(OptimizePage(store: store))))
+        }
+        return scenes
     }
 
     @MainActor
     private func capture<V: View>(_ root: V, size: NSSize, increasedContrast: Bool, to destination: URL) throws {
-        let window = NSWindow(
+        let window = SnapshotWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
@@ -197,7 +360,7 @@ final class DesignSnapshotTests: XCTestCase {
         window.contentView = NSHostingView(rootView: root)
         // Set the complete frame, so exported PNG dimensions include native chrome.
         window.setFrame(NSRect(origin: NSPoint(x: 100, y: 100), size: size), display: true)
-        window.orderFront(nil)
+        window.makeKeyAndOrderFront(nil)
         defer {
             window.orderOut(nil)
             window.contentView = nil
@@ -249,6 +412,14 @@ final class DesignSnapshotTests: XCTestCase {
             indicator.stopAnimation(nil)
         }
         view.subviews.forEach { pauseIndeterminateIndicators(in: $0) }
+    }
+}
+
+/// CI's virtual screen may be smaller than the requested bitmap. Preserve the
+/// requested native frame instead of allowing AppKit to clamp it to the display.
+private final class SnapshotWindow: NSWindow {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
     }
 }
 
@@ -336,6 +507,173 @@ private enum DesignScenario: String, CaseIterable {
         }
         return CleanCategory(id: id, title: title, note: note, root: root, mode: .children,
             measured: true, sizeBytes: items.reduce(0) { $0 + $1.sizeBytes }, children: items)
+    }
+}
+
+private struct SnapshotScene {
+    let page: Tab
+    let scenario: String
+    let content: AnyView
+    let footer: AnyView
+
+    init(page: Tab, scenario: String, content: AnyView, footer: AnyView = AnyView(EmptyView())) {
+        self.page = page
+        self.scenario = scenario
+        self.content = content
+        self.footer = footer
+    }
+
+    var sourceView: String {
+        switch page {
+        case .clean: "CleanPage"
+        case .apps: "AppsPage"
+        case .optimize: "OptimizePage"
+        case .analyze: "AnalyzePage"
+        case .status: "StatusPage"
+        }
+    }
+}
+
+private enum AnalyzeDesignScenario: String, CaseIterable {
+    case cards, list, empty, failed
+
+    @MainActor
+    func makeStore() -> AnalyzeStore {
+        let home = URL(fileURLWithPath: "/QiliPreview", isDirectory: true)
+        let folder = home.appendingPathComponent("Workspace", isDirectory: true)
+        let definitions: [(String, Bool, Int64)] = [
+            ("Projects", true, 18_254_643_200),
+            ("Design Library", true, 8_589_934_592),
+            ("Downloads", true, 4_294_967_296),
+            ("Screen Recording.mov", false, 1_677_721_600),
+            (".build", true, 838_860_800),
+            ("Project notes.pdf", false, 8_388_608),
+        ]
+        let items = definitions.map { name, directory, bytes in
+            let url = folder.appendingPathComponent(name, isDirectory: directory)
+            return AnalyzeItem(id: url.path, url: url, name: name, isDirectory: directory,
+                               sizeBytes: bytes)
+        }
+        switch self {
+        case .cards, .list:
+            return AnalyzeStore(snapshot: .init(home: home, path: [home, folder], items: items,
+                                                 sizedCount: items.count))
+        case .empty:
+            return AnalyzeStore(snapshot: .init(home: home, path: [home, folder]))
+        case .failed:
+            return AnalyzeStore(snapshot: .init(home: home, path: [home, folder],
+                                                 error: "无法访问此文件夹。请选择其他位置后重试。"))
+        }
+    }
+}
+
+private enum StatusDesignScenario: String, CaseIterable {
+    case metrics, unavailable
+
+    @MainActor
+    func makeStore() -> StatusStore {
+        var snapshot = StatusStore.PreviewSnapshot()
+        if self == .metrics {
+            snapshot.cpu = 24.8
+            snapshot.hasCPUReading = true
+            snapshot.memPercent = 56.4
+            snapshot.memUsedText = "20.3 GB"
+            snapshot.swapText = "512 MB"
+            snapshot.diskPercent = 61.2
+            snapshot.diskUsedText = "612 GB"
+            snapshot.diskFreeText = "388 GB"
+            snapshot.downRate = 2_306_867
+            snapshot.upRate = 314_573
+            snapshot.load = [2.41, 1.82, 1.36]
+            snapshot.battery = .init(percent: 84, charging: false, onAC: false)
+            snapshot.gpu = 18.6
+            snapshot.temperature = 43.0
+            snapshot.fanRPM = 1280
+            snapshot.processes = [
+                RealProcess(id: 101, name: "Canvas", memBytes: 1_717_986_918, cpu: 8.2),
+                RealProcess(id: 102, name: "Example Browser", memBytes: 1_288_490_189, cpu: 5.1),
+                RealProcess(id: 103, name: "Code Studio", memBytes: 943_718_400, cpu: 3.4),
+                RealProcess(id: 104, name: "Notes", memBytes: 251_658_240, cpu: 0.8),
+                RealProcess(id: 105, name: "Qili Preview", memBytes: 100_663_296, cpu: 0.4),
+            ]
+            snapshot.cpuHistory = (0..<42).map { 18 + Double(($0 * 7) % 19) }
+            snapshot.netHistory = (0..<42).map { 800_000 + Double(($0 * 17) % 23) * 80_000 }
+            snapshot.gpuHistory = (0..<42).map { 8 + Double(($0 * 3) % 17) }
+        }
+        return StatusStore(snapshot: snapshot)
+    }
+}
+
+@MainActor
+private struct AppDesignFixtures {
+    let apps: AppsStore
+    let login: LoginItemsStore
+    let updates: UpdateStore
+
+    init() {
+        let root = URL(fileURLWithPath: "/QiliPreview/Applications", isDirectory: true)
+        let definitions: [(String, String, String, Int64, String)] = [
+            ("Canvas", "3.4.1", "com.example.canvas", 838_860_800, "paintbrush.pointed"),
+            ("Code Studio", "2.8.0", "com.example.code", 1_677_721_600, "curlybraces.square"),
+            ("Example Browser", "128.0", "com.example.browser", 734_003_200, "globe"),
+            ("Notes", "1.6.2", "com.example.notes", 104_857_600, "note.text"),
+        ]
+        let items = definitions.map { name, version, bundleID, bytes, symbol in
+            let url = root.appendingPathComponent(name + ".app", isDirectory: true)
+            return ScannedApp(id: url.path, url: url, name: name, version: version,
+                bundleID: bundleID, modified: "2026-10-10", sizeBytes: bytes,
+                icon: NSImage(systemSymbolName: symbol, accessibilityDescription: name))
+        }
+        apps = AppsStore(snapshot: .init(apps: items, sizedCount: items.count))
+        login = LoginItemsStore(snapshot: .init(entries: [
+            LoginEntry(id: "/QiliPreview/LaunchAgents/com.example.canvas.helper.plist",
+                label: "com.example.canvas.helper", program: "/QiliPreview/Applications/Canvas.app/Contents/MacOS/Helper",
+                scope: .user, loaded: true, disabled: false),
+            LoginEntry(id: "/QiliPreview/LaunchAgents/com.example.notes.sync.plist",
+                label: "com.example.notes.sync", program: "/QiliPreview/Applications/Notes.app/Contents/MacOS/Sync",
+                scope: .user, loaded: false, disabled: true),
+            LoginEntry(id: "/QiliPreview/SystemAgents/com.example.system.agent.plist",
+                label: "com.example.system.agent", program: "/QiliPreview/System/ExampleAgent",
+                scope: .system, loaded: true, disabled: false),
+        ]))
+        updates = UpdateStore(snapshot: .init(updates: [
+            UpdateInfo(id: "preview-canvas", name: "Canvas", source: "Sparkle", from: "3.4.1", to: "3.5.0",
+                       action: .sparkle(app: items[0].url)),
+            UpdateInfo(id: "preview-code", name: "Code Studio", source: "Sparkle", from: "2.8.0", to: "2.9.1",
+                       action: .sparkle(app: items[1].url)),
+        ], lastChecked: Date(timeIntervalSince1970: 1_791_669_000)))
+    }
+}
+
+private enum OptimizeDesignScenario: String, CaseIterable {
+    case ready, results
+
+    @MainActor
+    func makeStore() -> OptimizeStore {
+        // Preserve the production task content while using IDs that cannot resolve to commands.
+        var states = OptimizeStore.defaultTasks().map { task in
+            OptimizeTaskState(id: "preview-" + task.id, title: task.title, note: task.note,
+                              requiresAuth: task.requiresAuth, readOnly: task.readOnly)
+        }
+        if self == .results {
+            states[0].status = .done
+            states[0].result = "缩略图缓存已重建"
+            states[0].output = "Preview fixture: thumbnail cache reset completed."
+            states[0].duration = 0.3
+            states[1].status = .skipped
+            states[1].result = "已取消授权，未做任何改动"
+            states[1].output = "Preview fixture: authorization cancelled."
+            states[1].duration = 1.2
+            states[2].status = .done
+            states[2].result = "索引正常启用，无需处理"
+            states[2].output = "Preview fixture: indexing enabled."
+            states[2].duration = 0.2
+            states[3].status = .failed
+            states[3].result = "校验未通过，建议在「磁盘工具」中查看"
+            states[3].output = "Preview fixture: verification unavailable."
+            states[3].duration = 4.1
+        }
+        return OptimizeStore(snapshot: .init(states: states, selected: ["preview-spotlight"]))
     }
 }
 #endif

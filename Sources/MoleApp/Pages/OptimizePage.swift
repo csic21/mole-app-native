@@ -30,6 +30,7 @@ struct OptimizePage: View {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 12) {
                             CheckView(on: store.selected.contains(task.id), label: "选择\(task.title)") {
+                                guard store.allowsLiveOperations else { return }
                                 if !store.selected.insert(task.id).inserted { store.selected.remove(task.id) }
                             }.disabled(store.running)
                             Text(task.title).font(.system(size: 13.5, weight: .medium))

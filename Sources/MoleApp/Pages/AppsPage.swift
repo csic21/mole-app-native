@@ -16,13 +16,45 @@ struct AppsPage: View {
     @State private var pendingEntry: LoginEntry?
     @State private var showConfirm = false
 
+    init(store: AppsStore, loginStore: LoginItemsStore, updateStore: UpdateStore) {
+        self.store = store
+        self.loginStore = loginStore
+        self.updateStore = updateStore
+    }
+
+#if DEBUG
+    enum PreviewSection { case inventory, updates, login }
+
+    /// Captures render the production page while all three stores stay inert.
+    @MainActor
+    init(store: AppsStore, loginStore: LoginItemsStore, updateStore: UpdateStore,
+         previewSection: PreviewSection) {
+        precondition(!store.allowsLiveOperations && !loginStore.allowsLiveOperations
+                     && !updateStore.allowsLiveOperations, "Page snapshots require isolated stores")
+        self.init(store: store, loginStore: loginStore, updateStore: updateStore)
+        let initialSection: Sub
+        switch previewSection {
+        case .inventory: initialSection = .inventory
+        case .updates: initialSection = .update
+        case .login: initialSection = .login
+        }
+        _sub = State(initialValue: initialSection)
+    }
+#endif
+
+    private var allowsLiveOperations: Bool {
+        store.allowsLiveOperations && loginStore.allowsLiveOperations && updateStore.allowsLiveOperations
+    }
+    // Never persist a fixture's controls to the user's normal sort preference.
+    private var activeSort: Sort { allowsLiveOperations ? sort : .name }
+    private var sortSelection: Binding<Sort> { allowsLiveOperations ? $sort : .constant(.name) }
     private var apps: [ScannedApp] { store.apps }
 
     private var visibleApps: [ScannedApp] {
         let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
         let filtered = apps.filter { query.isEmpty || $0.name.localizedStandardContains(query) || $0.bundleID.localizedStandardContains(query) }
         return filtered.sorted {
-            if sort == .size && !store.measuring && !store.scanning && $0.sizeBytes != $1.sizeBytes { return ($0.sizeBytes ?? -1) > ($1.sizeBytes ?? -1) }
+            if activeSort == .size && !store.measuring && !store.scanning && $0.sizeBytes != $1.sizeBytes { return ($0.sizeBytes ?? -1) > ($1.sizeBytes ?? -1) }
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
     }
@@ -38,6 +70,7 @@ struct AppsPage: View {
             }
         }
         .task {
+            guard allowsLiveOperations else { return }
             if !store.hasScanned && !store.scanning && !store.stopped {
                 store.refresh()
             }
@@ -64,9 +97,15 @@ struct AppsPage: View {
                     .foregroundStyle(Theme.dim3)
             }
             if store.measuring {
-                Button("停止测量") { store.stopMeasuring() }.buttonStyle(.plain).foregroundStyle(Theme.accent)
+                Button("停止测量") {
+                    guard allowsLiveOperations else { return }
+                    store.stopMeasuring()
+                }.buttonStyle(.plain).foregroundStyle(Theme.accent)
             }
-            Button("重新扫描") { store.refresh() }
+            Button("重新扫描") {
+                guard allowsLiveOperations else { return }
+                store.refresh()
+            }
                 .buttonStyle(WorkspaceButtonStyle(kind: .quiet))
         }
         .padding(.bottom, 10)
@@ -78,7 +117,7 @@ struct AppsPage: View {
                 TextField("搜索应用名称或 Bundle ID", text: $search)
                     .textFieldStyle(.roundedBorder).frame(maxWidth: 340)
                     .accessibilityLabel("搜索应用")
-                Picker("排序", selection: $sort) {
+                Picker("排序", selection: sortSelection) {
                     ForEach(Sort.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }.frame(width: 170).disabled(store.measuring).help(store.measuring ? "测量完成后可按大小排序" : "按名称或占用大小排序")
                 Spacer()
@@ -149,7 +188,10 @@ struct AppsPage: View {
                     .frame(width: 28, height: 28)
             }
         }
-        .task { store.loadIcon(for: app.id) }
+        .task {
+            guard allowsLiveOperations else { return }
+            store.loadIcon(for: app.id)
+        }
     }
 
     private var scanningPlaceholder: some View {
@@ -172,6 +214,7 @@ struct AppsPage: View {
                     .foregroundStyle(Theme.dim2)
                 Spacer()
                 Button("在访达中显示") {
+                    guard allowsLiveOperations else { return }
                     NSWorkspace.shared.activateFileViewerSelecting([app.url])
                 }
                 .buttonStyle(WorkspaceButtonStyle(kind: .quiet))
@@ -227,6 +270,7 @@ struct AppsPage: View {
     }
 
     private func loadLeftoversIfNeeded(_ app: ScannedApp) async {
+        guard allowsLiveOperations else { return }
         guard leftoverCache[app.id] == nil else { return }
         let task = Task.detached(priority: .userInitiated) { AppsStore.leftovers(for: app) }
         let items = await withTaskCancellationHandler { await task.value } onCancel: { task.cancel() }
@@ -290,6 +334,7 @@ struct AppsPage: View {
                                 .frame(width: 210, alignment: .trailing)
                         }
                         Button {
+                            guard allowsLiveOperations else { return }
                             Task { await updateStore.perform(info) }
                         } label: {
                             Text(buttonTitle(for: info))
@@ -318,6 +363,7 @@ struct AppsPage: View {
     }
 
     private func runCheck(force: Bool) async {
+        guard allowsLiveOperations else { return }
         if store.apps.isEmpty {
             if !store.scanning { store.refresh() }
             var waited = 0
@@ -361,6 +407,7 @@ struct AppsPage: View {
                 RowBox {
                     HStack(spacing: 12) {
                         CheckView(on: !entry.disabled, label: entry.scope == .system ? "系统启动项\(entry.label)，只读" : "\(entry.disabled ? "启用" : "停用")\(entry.label)") {
+                            guard allowsLiveOperations else { return }
                             guard entry.scope == .user else { return }
                             pendingEntry = entry
                             showConfirm = true
@@ -404,10 +451,14 @@ struct AppsPage: View {
             }
 
             FootBar(note: "用户级 \(loginStore.entries.filter { $0.scope == .user && !$0.disabled }.count) 项启用 · 启停跨重启生效") {
-                PillButton(title: "重新扫描") { loginStore.scan() }
+                PillButton(title: "重新扫描") {
+                    guard allowsLiveOperations else { return }
+                    loginStore.scan()
+                }
             }
         }
         .task {
+            guard allowsLiveOperations else { return }
             if loginStore.entries.isEmpty && !loginStore.scanning {
                 loginStore.scan()
             }
@@ -416,6 +467,7 @@ struct AppsPage: View {
             Button("取消", role: .cancel) { pendingEntry = nil }
             if let entry = pendingEntry {
                 Button(entry.disabled ? "启用" : "停用", role: entry.disabled ? nil : .destructive) {
+                    guard allowsLiveOperations else { return }
                     Task {
                         await loginStore.setEnabled(entry, enabled: entry.disabled)
                         pendingEntry = nil
