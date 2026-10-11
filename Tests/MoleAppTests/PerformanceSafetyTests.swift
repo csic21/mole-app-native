@@ -11,7 +11,13 @@ final class PerformanceSafetyTests: XCTestCase {
 
     private func file(_ root: URL, _ name: String) throws -> URL {
         let url = root.appendingPathComponent(name)
-        try Data((0..<32_768).map { UInt8(($0 * 13 + $0 / 256) % 251) }).write(to: url)
+        var bytes = [UInt8]()
+        bytes.reserveCapacity(32_768)
+        for index in 0..<32_768 {
+            let value: Int = (index * 13 + index / 256) % 251
+            bytes.append(UInt8(value))
+        }
+        try Data(bytes).write(to: url)
         return url
     }
 

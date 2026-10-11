@@ -20,8 +20,8 @@
 
 ```bash
 swift run
-bash scripts/package_app.sh 0.4.0              # dist/Qili.app 与 dist/Qili-0.4.0.zip
-bash scripts/package_app.sh 0.4.0 .build/qili-preview
+bash scripts/package_app.sh 0.4.1              # dist/Qili.app 与 dist/Qili-0.4.1.zip
+bash scripts/package_app.sh 0.4.1 .build/qili-preview
 ```
 
 也可用 Xcode 打开 `Package.swift`。内部 SwiftPM 目标仍叫 `MoleApp`，仓库 URL 和
