@@ -27,6 +27,29 @@ final class OptimizeStore: ObservableObject {
     @Published var selected: Set<String> = ["spotlight"]
     @Published private(set) var stopRequested = false
 
+    /// DEBUG snapshots preserve fixed results without launching maintenance commands.
+    private(set) var allowsLiveOperations = true
+
+    init() {}
+
+#if DEBUG
+    struct Snapshot {
+        var states: [OptimizeTaskState] = []
+        var running = false
+        var selected: Set<String> = []
+        var stopRequested = false
+    }
+
+    convenience init(snapshot: Snapshot) {
+        self.init()
+        allowsLiveOperations = false
+        states = snapshot.states
+        running = snapshot.running
+        selected = snapshot.selected
+        stopRequested = snapshot.stopRequested
+    }
+#endif
+
     static func defaultTasks() -> [OptimizeTaskState] {
         [
             OptimizeTaskState(
@@ -48,9 +71,13 @@ final class OptimizeStore: ObservableObject {
         ]
     }
 
-    func requestStop() { stopRequested = true }
+    func requestStop() {
+        guard allowsLiveOperations else { return }
+        stopRequested = true
+    }
 
     func runSelected(_ ids: Set<String>? = nil) async {
+        guard allowsLiveOperations else { return }
         let requested = ids ?? selected
         guard !running, !requested.isEmpty else { return }
         running = true

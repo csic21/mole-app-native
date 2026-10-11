@@ -8,7 +8,7 @@ struct OptimizePage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 18) {
-                Image(systemName: "wrench.and.screwdriver").font(.system(size: 30)).foregroundStyle(Theme.accent)
+                Image(systemName: "wrench.and.screwdriver").font(.system(size: 24)).foregroundStyle(Theme.accent)
                 VStack(alignment: .leading, spacing: 7) {
                     Text(store.running ? "正在执行维护任务" : "按需维护").font(.system(size: 20, weight: .semibold))
                     Text("默认只选索引检查；缓存刷新与磁盘校验按需运行。")
@@ -18,7 +18,7 @@ struct OptimizePage: View {
                 if store.running {
                     ProgressView().controlSize(.small)
                     Button(store.stopRequested ? "将在本项结束后停止" : "停止后续任务") { store.requestStop() }
-                        .disabled(store.stopRequested).buttonStyle(.plain).foregroundStyle(Theme.accent)
+                        .disabled(store.stopRequested).buttonStyle(WorkspaceButtonStyle())
                 } else {
                     PillButton(title: "运行已选 \(store.selected.count) 项", disabled: store.selected.isEmpty) {
                         Task { await store.runSelected() }
@@ -30,6 +30,7 @@ struct OptimizePage: View {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 12) {
                             CheckView(on: store.selected.contains(task.id), label: "选择\(task.title)") {
+                                guard store.allowsLiveOperations else { return }
                                 if !store.selected.insert(task.id).inserted { store.selected.remove(task.id) }
                             }.disabled(store.running)
                             Text(task.title).font(.system(size: 13.5, weight: .medium))
@@ -38,19 +39,19 @@ struct OptimizePage: View {
                             Spacer()
                             chip(task)
                             Button("单独运行") { Task { await store.runSelected([task.id]) } }
-                                .buttonStyle(.plain).foregroundStyle(Theme.accent).disabled(store.running)
+                                .buttonStyle(WorkspaceButtonStyle(kind: .quiet)).disabled(store.running)
                         }
                         Text(task.note).font(.system(size: 12.5)).foregroundStyle(Theme.dim2)
-                            .padding(.leading, 28)
+                            .padding(.leading, 40)
                         if let result = task.result {
                             Text(result).font(.system(size: 12)).foregroundStyle(task.status == .failed ? Theme.warm : Theme.dim2)
-                                .padding(.leading, 28).textSelection(.enabled)
+                                .padding(.leading, 40).textSelection(.enabled)
                         }
                         if let output = task.output, !output.isEmpty {
                             DisclosureGroup("查看执行记录" + (task.duration.map { String(format: " · %.1f 秒", $0) } ?? "")) {
                                 Text(output).font(Theme.monoSmall).foregroundStyle(Theme.dim2)
                                     .frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled).padding(.top, 8)
-                            }.font(.system(size: 12)).padding(.leading, 28)
+                            }.font(.system(size: 12)).padding(.leading, 40)
                         }
                     }
                 }

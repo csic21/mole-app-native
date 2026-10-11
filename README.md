@@ -20,8 +20,8 @@
 
 ```bash
 swift run
-bash scripts/package_app.sh 0.4.1              # dist/Qili.app 与 dist/Qili-0.4.1.zip
-bash scripts/package_app.sh 0.4.1 .build/qili-preview
+bash scripts/package_app.sh 0.4.2              # dist/Qili.app 与 dist/Qili-0.4.2.zip
+bash scripts/package_app.sh 0.4.2 .build/qili-preview
 ```
 
 也可用 Xcode 打开 `Package.swift`。内部 SwiftPM 目标仍叫 `MoleApp`，仓库 URL 和
@@ -49,6 +49,18 @@ FTS 15 ms，约 3.3 倍，均统计到 40,960,000 字节。这是扫描内核的
 
 回归覆盖普通文件、隐藏项、符号链接、稀疏文件、取消扫描、逐项选择、清理路径重校验、
 目录返回缓存、命令大量双路输出/超时/取消及网络计数重置。测试不清理真实用户文件。
+
+## 原生界面验证
+
+设计说明、交互边界与人工检查清单见 [界面设计说明](docs/DESIGN_REFRESH.md)。
+
+```bash
+python3 scripts/check_design_contrast.py
+bash scripts/capture_design_snapshots.sh      # 需 macOS 图形登录会话；输出到 .build/design-snapshots
+```
+
+截图测试使用实际 SwiftUI / AppKit 视图与隔离的示例状态，不启动正常应用，不扫描或移动本机文件。
+普通 `swift test` 检查示例状态安全性；仅显式运行截图脚本时输出 PNG。
 
 ## 品牌素材
 
@@ -80,6 +92,7 @@ Pages 工作流仍使用现有仓库路径。下载与源码链接均指向本�
 
 推送 main 或提交 PR 会构建应用；推送 `v*` 标签会生成 `Qili-<version>.zip` 并发布 GitHub Release。
 版本常量位于 `Sources/MoleApp/AppVersion.swift`，发版时应与标签一致。
+发布精确已验证提交、请求格式与安装包核验步骤见 [发布说明](docs/RELEASING.md)。
 
 ## 来源与许可
 

@@ -4,12 +4,39 @@ import SwiftUI
 struct AnalyzePage: View {
     @ObservedObject var store: AnalyzeStore
     @State private var search = ""
-    @State private var showHidden = true
-    @State private var listMode = false
-    @State private var disk: SystemMetrics.DiskInfo?
+    @AppStorage private var showHidden: Bool
+    @AppStorage private var listMode: Bool
+
+    init(store: AnalyzeStore) {
+        self.store = store
+        _showHidden = AppStorage(wrappedValue: true, "analyze.showHidden")
+        _listMode = AppStorage(wrappedValue: true, "analyze.listMode")
+    }
+
+#if DEBUG
+    @MainActor
+    init(snapshotStore: AnalyzeStore, listMode: Bool = true, showHidden: Bool = true) {
+        precondition(!snapshotStore.allowsLiveOperations, "Snapshots require an inert store")
+        store = snapshotStore
+        // Private volatile preferences prevent captures from reading or changing app preferences.
+        let suite = "QiliPreview.AnalyzePage.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.setVolatileDomain(["analyze.listMode": listMode, "analyze.showHidden": showHidden], forName: suite)
+        _showHidden = AppStorage(wrappedValue: showHidden, "analyze.showHidden", store: defaults)
+        _listMode = AppStorage(wrappedValue: listMode, "analyze.listMode", store: defaults)
+    }
+#endif
+
+    private var hiddenPreference: Binding<Bool> {
+        Binding(get: { showHidden }, set: { if store.allowsLiveOperations { showHidden = $0 } })
+    }
+    private var listPreference: Binding<Bool> {
+        Binding(get: { listMode }, set: { if store.allowsLiveOperations { listMode = $0 } })
+    }
     private let columns = [GridItem(.adaptive(minimum: 190), spacing: 10)]
-    private let palette: [Color] = [Color(hex: 0x3B605A), Color(hex: 0x3C5465), Color(hex: 0x595B49),
-                                  Color(hex: 0x5B5148), Color(hex: 0x435A55), Color(hex: 0x4E5368)]
+    private let legendColumns = [GridItem(.adaptive(minimum: 280), spacing: 20)]
+    private let palette: [Color] = [Color(hex: 0x8DAE9D), Color(hex: 0x879BB4), Color(hex: 0xB4A47E),
+                                  Color(hex: 0xB59083), Color(hex: 0x9C91AC), Color(hex: 0x82ABAE)]
     private var visibleItems: [AnalyzeItem] {
         let filtered = store.items.filter { (showHidden || !$0.name.hasPrefix(".")) && (search.isEmpty || $0.name.localizedStandardContains(search)) }
         // 测量期间保持位置稳定，避免目标在点击前移动到另一行。
@@ -22,64 +49,108 @@ struct AnalyzePage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                Image(systemName: "folder.fill").font(.system(size: 25)).foregroundStyle(Theme.accent)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("当前文件夹 · 实际分配大小").font(.system(size: 12)).foregroundStyle(Theme.dim2)
-                    Text("\(store.items.count) 项 · \(store.totalText)").font(.system(size: 23, weight: .semibold))
-                    Text(progressText).font(.system(size: 12)).foregroundStyle(Theme.dim3)
-                }
-                Spacer()
-                if store.sizing {
-                    ProgressView().controlSize(.small)
-                    Button("停止") { store.stop() }.buttonStyle(.plain).foregroundStyle(Theme.accent)
-                } else {
-                    Button("重新测量") { store.rescan() }.buttonStyle(.plain).foregroundStyle(Theme.accent)
-                }
-                Button("选择文件夹…") { chooseFolder() }.buttonStyle(.bordered)
-            }.padding(20).background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
+            folderSummary
             HStack(spacing: 5) {
                 Button { store.goUp() } label: { Image(systemName: "arrow.up") }
                     .disabled(store.path.count < 2).help("返回上一层").keyboardShortcut(.upArrow, modifiers: .command)
-                ForEach(Array(store.path.enumerated()), id: \.offset) { index, url in
-                    if index > 0 { Text("›").foregroundStyle(Theme.dim3) }
-                    Button(url == store.home ? "~" : url.lastPathComponent) { store.jump(to: index) }
-                        .buttonStyle(.plain).lineLimit(1).help(url.path)
+                    .accessibilityLabel("返回上一层")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(Array(store.path.enumerated()), id: \.offset) { index, url in
+                            if index > 0 { Image(systemName: "chevron.right").font(.system(size: 9)).foregroundStyle(Theme.dim3) }
+                            Button(url == store.home ? "~" : folderName(url)) { store.jump(to: index) }
+                                .buttonStyle(.plain).fixedSize().help(url.path)
+                                .foregroundStyle(index == store.path.count - 1 ? Theme.star : Theme.dim2)
+                                .accessibilityLabel(url.path)
+                        }
+                    }
                 }
-                Spacer()
-                Button { NSWorkspace.shared.activateFileViewerSelecting([store.current]) } label: {
+                Button { reveal(store.current) } label: {
                     Label("访达", systemImage: "arrow.up.forward.square")
-                }.buttonStyle(.plain)
+                }.buttonStyle(.plain).fixedSize().help("在访达中显示当前文件夹")
             }.font(.system(size: 12.5)).foregroundStyle(Theme.dim2)
             if store.totalBytes > 0 { distribution }
             HStack(spacing: 14) {
                 TextField("搜索当前文件夹", text: $search).textFieldStyle(.roundedBorder).frame(maxWidth: 300)
-                Toggle("显示隐藏项", isOn: $showHidden).toggleStyle(.checkbox)
+                Toggle("显示隐藏项", isOn: hiddenPreference).toggleStyle(.checkbox)
                 Spacer()
-                Picker("显示方式", selection: $listMode) {
-                    Text("卡片").tag(false)
+                Picker("显示方式", selection: listPreference) {
                     Text("列表").tag(true)
+                    Text("卡片").tag(false)
                 }.pickerStyle(.segmented).labelsHidden().frame(width: 130)
             }.font(.system(size: 12))
+            HStack {
+                Text("显示 \(visibleItems.count) / \(store.items.count) 项")
+                Spacer()
+                Text(store.sizing ? "测量中保持名称顺序" : "按分配大小排列")
+            }.font(.system(size: 12)).foregroundStyle(Theme.dim2)
             if let error = store.error {
                 ContentUnavailableView("无法读取文件夹", systemImage: "folder.badge.questionmark", description: Text(error))
+            } else if store.stopped && store.items.isEmpty {
+                ContentUnavailableView("测量已停止", systemImage: "pause.circle", description: Text("重新测量以读取当前文件夹。"))
             } else if visibleItems.isEmpty && !store.sizing {
-                ContentUnavailableView(search.isEmpty ? "文件夹为空" : "没有匹配的项目", systemImage: "folder", description: Text("可以选择其他文件夹或调整筛选条件。"))
+                ContentUnavailableView(store.items.isEmpty ? "文件夹为空" : "没有匹配的项目", systemImage: "folder", description: Text("可以选择其他文件夹或调整筛选条件。"))
             } else if listMode {
-                LazyVStack(spacing: 5) { ForEach(visibleItems) { item in fileRow(item) } }
+                VStack(spacing: 6) {
+                    listHeader
+                    LazyVStack(spacing: 3) { ForEach(visibleItems) { item in fileRow(item) } }
+                }
             } else {
+                Text("卡片等宽排列，占比见数值与进度条。")
+                    .font(.system(size: 12)).foregroundStyle(Theme.dim2)
                 LazyVGrid(columns: columns, spacing: 10) { ForEach(visibleItems) { item in tile(item) } }
             }
-            if let disk {
-                Text("本卷已用 \(AppsStore.formatBytes(Int64(disk.usedBytes))) / \(AppsStore.formatBytes(Int64(disk.totalBytes))) · 部分文件不可访问时标为 ≥")
-                    .font(Theme.monoSmall).foregroundStyle(Theme.dim3)
-            }
+            Text("大小按文件实际分配空间计算；≥ 表示结果不完整，不等同于可释放空间。此页仅查看与定位文件。")
+                .font(.system(size: 12)).foregroundStyle(Theme.dim2)
         }
         .task {
-            disk = await Task.detached(priority: .utility) { SystemMetrics.diskInfo() }.value
+            guard store.allowsLiveOperations else { return }
             if !store.hasLoaded { store.rescan() }
         }
         .onChange(of: store.current) { _, _ in search = "" }
+    }
+
+    private var folderSummary: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .top, spacing: 16) {
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 28)).foregroundStyle(Theme.accent)
+                    .padding(.top, 3).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(folderName(store.current)).font(.system(size: 20, weight: .semibold)).lineLimit(1)
+                    Text(store.current.path).font(Theme.monoSmall).foregroundStyle(Theme.dim2)
+                        .lineLimit(1).truncationMode(.middle).textSelection(.enabled).help(store.current.path)
+                }.frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .trailing, spacing: 6) {
+                    Text(totalText).font(.system(size: 25, weight: .semibold)).monospacedDigit()
+                    Text("\(store.items.count) 项 · 已测分配大小")
+                        .font(.system(size: 12)).foregroundStyle(Theme.dim2)
+                }.fixedSize(horizontal: true, vertical: false)
+            }
+            HStack(spacing: 12) {
+                if store.sizing { ProgressView().controlSize(.small) }
+                Text(progressText).font(.system(size: 12)).foregroundStyle(Theme.dim2)
+                Spacer(minLength: 12)
+                if store.sizing {
+                    Button("停止") { store.stop() }.buttonStyle(.bordered)
+                } else {
+                    Button("重新测量") { store.rescan() }.buttonStyle(.bordered)
+                }
+                Button("选择文件夹…") { chooseFolder() }.buttonStyle(.bordered)
+            }
+        }
+        .padding(20).background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.line))
+    }
+
+    private var totalText: String {
+        if store.error != nil || ((store.sizing || store.stopped) && store.items.isEmpty) { return "—" }
+        let incomplete = store.items.contains { $0.sizeBytes == nil || $0.partial }
+        return (incomplete ? "≥ " : "") + store.totalText
+    }
+
+    private func folderName(_ url: URL) -> String {
+        url.lastPathComponent.isEmpty ? "/" : url.lastPathComponent
     }
 
     private var progressText: String {
@@ -90,24 +161,71 @@ struct AnalyzePage: View {
     }
 
     private var distribution: some View {
-        let largest = Array(store.items.filter { ($0.sizeBytes ?? 0) > 0 }.sorted { ($0.sizeBytes ?? 0) > ($1.sizeBytes ?? 0) }.prefix(6))
-        let other = store.totalBytes - largest.compactMap(\.sizeBytes).reduce(0, +)
-        return VStack(alignment: .leading, spacing: 10) {
+        let largest = Array(visibleItems.filter { ($0.sizeBytes ?? 0) > 0 }.sorted {
+            if $0.sizeBytes != $1.sizeBytes { return ($0.sizeBytes ?? 0) > ($1.sizeBytes ?? 0) }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }.prefix(6))
+        let other = max(0, store.totalBytes - largest.compactMap(\.sizeBytes).reduce(0, +))
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("空间分布").font(.system(size: 13, weight: .semibold))
+                Spacer()
+                Text("以当前文件夹全部已测大小为基准")
+                    .font(.system(size: 12)).foregroundStyle(Theme.dim2)
+            }
             GeometryReader { geometry in
                 HStack(spacing: 0) {
                     ForEach(Array(largest.enumerated()), id: \.element.id) { index, item in
                         Button { enterOrReveal(item) } label: { palette[index % palette.count] }
                             .buttonStyle(.plain)
                             .frame(width: geometry.size.width * Double(item.sizeBytes ?? 0) / Double(store.totalBytes))
-                            .help("\(item.name) · \(AppsStore.formatBytes(item.sizeBytes))")
+                            .help("\(item.name) · \(sizeText(item)) · \(share(item))")
+                            .accessibilityLabel("\(item.name)，\(sizeText(item))，占比 \(share(item))")
                             .disabled(store.sizing)
                     }
-                    if other > 0 { Theme.dim3.opacity(0.3) }
+                    if other > 0 {
+                        Theme.dim3.opacity(0.45)
+                            .frame(width: geometry.size.width * Double(other) / Double(store.totalBytes))
+                            .accessibilityLabel("其余项目，\(AppsStore.formatBytes(other))")
+                    }
                 }.clipShape(RoundedRectangle(cornerRadius: 5))
-            }.frame(height: 16)
-            Text((store.sizing || store.stopped ? "已测项目的占比：" : "最大项：") + largest.prefix(3).map { "\($0.name) \(share($0))" }.joined(separator: " · "))
-                .font(.system(size: 12)).foregroundStyle(Theme.dim2).lineLimit(2)
+            }.frame(height: 18)
+            LazyVGrid(columns: legendColumns, alignment: .leading, spacing: 9) {
+                ForEach(Array(largest.enumerated()), id: \.element.id) { index, item in
+                    distributionKey(name: item.name, size: sizeText(item), share: share(item), color: palette[index])
+                        .help(item.url.path)
+                }
+                if other > 0 {
+                    distributionKey(name: "其余项目", size: AppsStore.formatBytes(other),
+                                    share: String(format: "%.1f%%", Double(other) / Double(store.totalBytes) * 100),
+                                    color: Theme.dim3.opacity(0.45))
+                }
+            }
+            if !showHidden || !search.isEmpty || store.sizing || store.stopped || store.items.contains(where: \.partial) {
+                Text("筛选不改变占比基准；已筛除项目计入「其余项目」。未完成或受限的测量仅统计已读部分。")
+                    .font(.system(size: 12)).foregroundStyle(Theme.dim2)
+            }
         }
+    }
+
+    private func distributionKey(name: String, size: String, share: String, color: Color) -> some View {
+        HStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 2).fill(color).frame(width: 9, height: 9).accessibilityHidden(true)
+            Text(name).lineLimit(1).truncationMode(.middle).frame(maxWidth: .infinity, alignment: .leading)
+            Text(size).font(Theme.monoSmall).foregroundStyle(Theme.dim2).fixedSize()
+            Text(share).font(Theme.monoSmall).foregroundStyle(Theme.dim2).frame(width: 54, alignment: .trailing)
+        }.font(.system(size: 12))
+            .accessibilityElement(children: .combine)
+    }
+
+    private var listHeader: some View {
+        HStack(spacing: 14) {
+            Text("名称").frame(maxWidth: .infinity, alignment: .leading)
+            Text("占文件夹已测大小").frame(width: 179, alignment: .trailing)
+            Text("分配大小").frame(width: 100, alignment: .trailing)
+            Color.clear.frame(width: 12, height: 1)
+        }.font(.system(size: 12, weight: .medium)).foregroundStyle(Theme.dim2)
+            .padding(.horizontal, 14).padding(.bottom, 3)
     }
 
     private func tile(_ item: AnalyzeItem) -> some View {
@@ -136,16 +254,21 @@ struct AnalyzePage: View {
                     Label(item.name, systemImage: item.isDirectory ? "folder" : "doc").lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     BarView(value: fraction(item)).frame(width: 110)
-                    Text(share(item)).font(Theme.monoSmall).foregroundStyle(Theme.dim3).frame(width: 55, alignment: .trailing)
+                    Text(share(item)).font(Theme.monoSmall).foregroundStyle(Theme.dim2).frame(width: 55, alignment: .trailing)
                     Text(sizeText(item)).font(Theme.mono).frame(width: 100, alignment: .trailing)
                     Image(systemName: item.isDirectory ? "chevron.right" : "arrow.up.forward.square").foregroundStyle(Theme.dim3)
+                        .frame(width: 12).accessibilityHidden(true)
                 }.font(.system(size: 13)).contentShape(Rectangle())
-            }.buttonStyle(.plain).contextMenu { revealButton(item) }
+            }.buttonStyle(.plain).help(item.url.path).contextMenu { revealButton(item) }
         }
     }
 
     private func revealButton(_ item: AnalyzeItem) -> some View {
-        Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
+        Button("在访达中显示") { reveal(item.url) }
+    }
+    private func reveal(_ url: URL) {
+        guard store.allowsLiveOperations else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
     }
     private func sizeText(_ item: AnalyzeItem) -> String {
         guard let size = item.sizeBytes else { return store.sizing ? "测量中…" : "未测量" }
@@ -156,10 +279,12 @@ struct AnalyzePage: View {
     }
     private func share(_ item: AnalyzeItem) -> String { item.sizeBytes == nil ? "—" : String(format: "%.1f%%", fraction(item)) }
     private func enterOrReveal(_ item: AnalyzeItem) {
+        guard store.allowsLiveOperations else { return }
         if item.isDirectory { store.enter(item) }
-        else { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
+        else { reveal(item.url) }
     }
     private func chooseFolder() {
+        guard store.allowsLiveOperations else { return }
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true

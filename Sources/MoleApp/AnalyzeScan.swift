@@ -21,43 +21,93 @@ final class AnalyzeStore: ObservableObject {
     @Published private(set) var fromCache = false
     @Published private(set) var hasLoaded = false
 
-    let home = FileManager.default.homeDirectoryForCurrentUser
+    let home: URL
+    /// Inert DEBUG fixtures must never enumerate files or launch external actions.
+    let allowsLiveOperations: Bool
     private var task: Task<Void, Never>?
     private struct Cached { let date: Date; let items: [AnalyzeItem] }
     private var cache: [URL: Cached] = [:]
 
-    init() { path = [home] }
+    init() {
+        home = FileManager.default.homeDirectoryForCurrentUser
+        allowsLiveOperations = true
+        path = [home]
+    }
+
+#if DEBUG
+    struct Snapshot {
+        var home = URL(fileURLWithPath: "/QiliPreview", isDirectory: true)
+        var path: [URL]
+        var items: [AnalyzeItem] = []
+        var sizing = false
+        var sizedCount = 0
+        var error: String? = nil
+        var stopped = false
+        var fromCache = false
+        var hasLoaded = true
+    }
+
+    init(snapshot: Snapshot) {
+        func isSynthetic(_ url: URL) -> Bool {
+            let path = url.standardizedFileURL.path
+            return url.isFileURL && (path == "/QiliPreview" || path.hasPrefix("/QiliPreview/"))
+        }
+        precondition(isSynthetic(snapshot.home) && !snapshot.path.isEmpty
+            && snapshot.path.allSatisfy(isSynthetic)
+            && snapshot.items.allSatisfy { isSynthetic($0.url) && $0.id == $0.url.path },
+            "Snapshot fixtures must use synthetic /QiliPreview paths")
+        home = snapshot.home
+        allowsLiveOperations = false
+        path = snapshot.path
+        items = snapshot.items
+        sizing = snapshot.sizing
+        sizedCount = snapshot.sizedCount
+        error = snapshot.error
+        stopped = snapshot.stopped
+        fromCache = snapshot.fromCache
+        hasLoaded = snapshot.hasLoaded
+    }
+#endif
     var current: URL { path.last ?? home }
     var totalBytes: Int64 { items.compactMap(\.sizeBytes).reduce(0, +) }
     var totalText: String { AppsStore.formatBytes(totalBytes) }
 
     func enter(_ item: AnalyzeItem) {
-        guard item.isDirectory else { return }
+        guard allowsLiveOperations, item.isDirectory else { return }
         path.append(item.url)
         load()
     }
 
     func goUp() {
-        guard path.count > 1 else { return }
+        guard allowsLiveOperations, path.count > 1 else { return }
         path.removeLast()
         load()
     }
 
     func jump(to index: Int) {
-        guard path.indices.contains(index), index != path.count - 1 else { return }
+        guard allowsLiveOperations, path.indices.contains(index), index != path.count - 1 else { return }
         path = Array(path.prefix(index + 1))
         load()
     }
 
-    func open(_ url: URL) { path = [url]; load() }
-    func rescan() { load(force: true) }
+    func open(_ url: URL) {
+        guard allowsLiveOperations else { return }
+        path = [url]
+        load()
+    }
+    func rescan() {
+        guard allowsLiveOperations else { return }
+        load(force: true)
+    }
     func stop() {
+        guard allowsLiveOperations else { return }
         task?.cancel()
         sizing = false
         stopped = true
     }
 
     private func load(force: Bool = false) {
+        guard allowsLiveOperations else { return }
         task?.cancel()
         let root = current
         hasLoaded = true
@@ -115,6 +165,7 @@ final class AnalyzeStore: ObservableObject {
     }
 
     private func measureAll(_ snapshot: [AnalyzeItem]) async {
+        guard allowsLiveOperations else { return }
         await withTaskGroup(of: (String, FileSizer.Measurement).self) { group in
             var next = 0
             func enqueue() {

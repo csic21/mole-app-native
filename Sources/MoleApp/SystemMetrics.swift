@@ -411,14 +411,88 @@ final class StatusStore: ObservableObject {
     @Published private(set) var netHistory: [Double] = Array(repeating: 0, count: 42)
     @Published private(set) var gpuHistory: [Double] = Array(repeating: 0, count: 42)
 
-    let hostName: String = Host.current().localizedName ?? "Mac"
-    let chip: String = SystemMetrics.sysctlString("machdep.cpu.brand_string") ?? "—"
-    let coreCount = ProcessInfo.processInfo.activeProcessorCount
-    let memoryGB = Int(ProcessInfo.processInfo.physicalMemory / 1_073_741_824)
-    let osVersion: String = {
+    let hostName: String
+    let chip: String
+    let coreCount: Int
+    let memoryGB: Int
+    let osVersion: String
+    let allowsLiveOperations: Bool
+    private let fixedUptimeText: String?
+    private let fixedBootDateText: String?
+
+    init() {
+        allowsLiveOperations = true
+        fixedUptimeText = nil
+        fixedBootDateText = nil
+        hostName = Host.current().localizedName ?? "Mac"
+        chip = SystemMetrics.sysctlString("machdep.cpu.brand_string") ?? "—"
+        coreCount = ProcessInfo.processInfo.activeProcessorCount
+        memoryGB = Int(ProcessInfo.processInfo.physicalMemory / 1_073_741_824)
         let version = ProcessInfo.processInfo.operatingSystemVersion
-        return "macOS \(version.majorVersion).\(version.minorVersion)"
-    }()
+        osVersion = "macOS \(version.majorVersion).\(version.minorVersion)"
+    }
+
+#if DEBUG
+    /// Supplied entirely by tests; initialization does not consult this Mac.
+    struct PreviewSnapshot {
+        var hostName = "Qili Preview Mac"
+        var chip = "Apple M3 Pro"
+        var coreCount = 12
+        var memoryGB = 36
+        var osVersion = "macOS 15.0"
+        var uptimeText = "2 天 4 小时"
+        var bootDateText = "10 月 9 日"
+        var cpu = 0.0
+        var hasCPUReading = false
+        var memPercent = 0.0
+        var memUsedText = "—"
+        var swapText = "—"
+        var diskPercent = 0.0
+        var diskUsedText = "—"
+        var diskFreeText = "—"
+        var downRate = 0.0
+        var upRate = 0.0
+        var load: [Double] = [0, 0, 0]
+        var battery: SystemMetrics.BatteryInfo? = nil
+        var gpu: Double? = nil
+        var temperature: Double? = nil
+        var fanRPM: Double? = nil
+        var processes: [RealProcess] = []
+        var cpuHistory: [Double] = Array(repeating: 0, count: 42)
+        var netHistory: [Double] = Array(repeating: 0, count: 42)
+        var gpuHistory: [Double] = Array(repeating: 0, count: 42)
+    }
+
+    init(snapshot: PreviewSnapshot) {
+        allowsLiveOperations = false
+        hostName = snapshot.hostName
+        chip = snapshot.chip
+        coreCount = snapshot.coreCount
+        memoryGB = snapshot.memoryGB
+        osVersion = snapshot.osVersion
+        fixedUptimeText = snapshot.uptimeText
+        fixedBootDateText = snapshot.bootDateText
+        cpu = snapshot.cpu
+        hasCPUReading = snapshot.hasCPUReading
+        memPercent = snapshot.memPercent
+        memUsedText = snapshot.memUsedText
+        swapText = snapshot.swapText
+        diskPercent = snapshot.diskPercent
+        diskUsedText = snapshot.diskUsedText
+        diskFreeText = snapshot.diskFreeText
+        downRate = snapshot.downRate
+        upRate = snapshot.upRate
+        load = snapshot.load
+        battery = snapshot.battery
+        gpu = snapshot.gpu
+        temperature = snapshot.temperature
+        fanRPM = snapshot.fanRPM
+        processes = snapshot.processes
+        cpuHistory = snapshot.cpuHistory
+        netHistory = snapshot.netHistory
+        gpuHistory = snapshot.gpuHistory
+    }
+#endif
 
     private var timer: Timer?
     private var tick = 0
@@ -429,6 +503,7 @@ final class StatusStore: ObservableObject {
     private var previousNetwork: (received: UInt64, sent: UInt64)?
 
     var uptimeText: String {
+        if let fixedUptimeText { return fixedUptimeText }
         let seconds = Int(ProcessInfo.processInfo.systemUptime)
         let days = seconds / 86_400
         let hours = (seconds % 86_400) / 3_600
@@ -439,6 +514,7 @@ final class StatusStore: ObservableObject {
     }
 
     var bootDateText: String {
+        if let fixedBootDateText { return fixedBootDateText }
         let boot = Date(timeIntervalSinceNow: -ProcessInfo.processInfo.systemUptime)
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "zh_CN")
@@ -463,7 +539,7 @@ final class StatusStore: ObservableObject {
     }
 
     func start() {
-        guard timer == nil else { return }
+        guard allowsLiveOperations, timer == nil else { return }
         generation += 1
         previousTicks = nil
         previousNetwork = nil
@@ -479,6 +555,7 @@ final class StatusStore: ObservableObject {
     }
 
     func stop() {
+        guard allowsLiveOperations else { return }
         timer?.invalidate()
         timer = nil
         generation += 1
@@ -501,7 +578,7 @@ final class StatusStore: ObservableObject {
     }
 
     private func tickOnce() {
-        guard !sampling else { return }
+        guard allowsLiveOperations, !sampling else { return }
         tick += 1
         sampling = true
         let revision = generation
@@ -530,6 +607,7 @@ final class StatusStore: ObservableObject {
     private var previousMonotonicTime: TimeInterval?
 
     private func apply(_ frame: Snapshot, heavy: Bool) {
+        guard allowsLiveOperations else { return }
         if let current = frame.ticks {
             if let previous = previousTicks {
                 cpu = SystemMetrics.cpuUsage(from: previous, to: current)

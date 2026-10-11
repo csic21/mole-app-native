@@ -41,14 +41,57 @@ final class CleanStore: ObservableObject {
     @Published private(set) var categories: [CleanCategory] = []
     @Published private(set) var scanning = false
     @Published private(set) var measuredCount = 0
-    enum Phase { case scanning, result, list, trashing, done }
-    @Published var phase: Phase = .scanning
+    enum Phase { case ready, scanning, result, list, trashing, done }
+    @Published var phase: Phase = .ready
     @Published var selected: Set<String> = []
     @Published var expanded: Set<String> = []
     @Published private(set) var result: TrashResult?
     @Published private(set) var stopped = false
     @Published private(set) var currentCategory = ""
     @Published private(set) var hasScanned = false
+
+    /// False only for isolated DEBUG fixtures. No preview can start filesystem work.
+    private(set) var allowsLiveOperations = true
+
+    init() {}
+
+#if DEBUG
+    /// Test-only state injection; constructing this never scans or creates files.
+    struct Snapshot {
+        var phase: Phase
+        var categories: [CleanCategory] = []
+        var scanning = false
+        var measuredCount = 0
+        var selected: Set<String> = []
+        var expanded: Set<String> = []
+        var result: TrashResult? = nil
+        var stopped = false
+        var currentCategory = ""
+        var hasScanned = true
+    }
+
+    convenience init(snapshot: Snapshot) {
+        self.init()
+        // Keep even accidental fixture paths outside the user's home and live roots.
+        precondition(snapshot.categories.allSatisfy { category in
+            category.root.standardizedFileURL.path.hasPrefix("/QiliPreview/")
+                && category.children.allSatisfy {
+                    URL(fileURLWithPath: $0.id).standardizedFileURL.path.hasPrefix("/QiliPreview/")
+                }
+        }, "Snapshot fixtures must use synthetic /QiliPreview paths")
+        allowsLiveOperations = false
+        phase = snapshot.phase
+        categories = snapshot.categories
+        scanning = snapshot.scanning
+        measuredCount = snapshot.measuredCount
+        selected = snapshot.selected
+        expanded = snapshot.expanded
+        result = snapshot.result
+        stopped = snapshot.stopped
+        currentCategory = snapshot.currentCategory
+        hasScanned = snapshot.hasScanned
+    }
+#endif
 
     var selectedItems: [CleanItem] {
         categories.flatMap(\.children).filter { selected.contains($0.id) }
@@ -65,6 +108,7 @@ final class CleanStore: ObservableObject {
     }
 
     func stop() {
+        guard allowsLiveOperations else { return }
         scanTask?.cancel()
         scanning = false
         stopped = true
@@ -106,6 +150,7 @@ final class CleanStore: ObservableObject {
     }
 
     func scan(showProgress: Bool = true) {
+        guard allowsLiveOperations else { return }
         guard phase != .trashing else { return }
         scanTask?.cancel()
         hasScanned = true
@@ -208,6 +253,7 @@ final class CleanStore: ObservableObject {
 
     /// 只处理已勾选的真实子项。移动放在后台，页面切换不会丢失结果。
     func trash() async {
+        guard allowsLiveOperations else { return }
         guard phase != .trashing, !scanning, !selected.isEmpty else { return }
         let snapshot = categories
         let ids = selected

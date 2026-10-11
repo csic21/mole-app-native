@@ -11,8 +11,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate release tooling
+        run: python3 -m unittest discover -s scripts/tests -p 'test_release_*.py'
+
       - name: Run tests
         run: swift test
+
+      - name: Check design palette contrast
+        run: python3 scripts/check_design_contrast.py
+
+      - name: Capture native design states
+        run: bash scripts/capture_design_snapshots.sh
+
+      - name: Upload native design captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Qili-design-snapshots
+          path: .build/design-snapshots/
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Build .app package
         run: ./scripts/package_app.sh 0.0.0-ci
