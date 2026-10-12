@@ -86,21 +86,21 @@ final class PerformanceSafetyTests: XCTestCase {
         XCTAssertTrue(result.measured)
     }
 
-    func testTrashValidationRejectsOutsideNestedAndReplacedParent() throws {
+    func testCleanupValidationRejectsOutsideNestedAndReplacedParent() throws {
         let root = try fixture()
         let child = try file(root, "allowed")
         let category = CleanCategory(id: "fixture", title: "fixture", note: "", root: root, mode: .children)
-        XCTAssertTrue(CleanStore.isValidTrashTarget(child, category: category))
-        XCTAssertFalse(CleanStore.isValidTrashTarget(root, category: category))
+        XCTAssertTrue(CleanStore.isValidCleanupTarget(child, category: category))
+        XCTAssertFalse(CleanStore.isValidCleanupTarget(root, category: category))
         let outside = try fixture()
-        XCTAssertFalse(CleanStore.isValidTrashTarget(try file(outside, "outside"), category: category))
+        XCTAssertFalse(CleanStore.isValidCleanupTarget(try file(outside, "outside"), category: category))
         let nested = root.appendingPathComponent("nested")
         try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
-        XCTAssertFalse(CleanStore.isValidTrashTarget(try file(nested, "nested-file"), category: category))
+        XCTAssertFalse(CleanStore.isValidCleanupTarget(try file(nested, "nested-file"), category: category))
         try FileManager.default.removeItem(at: root)
         try FileManager.default.createSymbolicLink(at: root, withDestinationURL: outside)
         _ = try file(outside, "allowed")
-        XCTAssertFalse(CleanStore.isValidTrashTarget(child, category: category))
+        XCTAssertFalse(CleanStore.isValidCleanupTarget(child, category: category))
     }
 
     @MainActor

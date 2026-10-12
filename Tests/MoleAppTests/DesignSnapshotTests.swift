@@ -33,7 +33,7 @@ final class DesignSnapshotTests: XCTestCase {
             let scanning = store.scanning
             let stopped = store.stopped
             let hasScanned = store.hasScanned
-            let moved = store.result?.moved
+            let cleaned = store.result?.cleaned
             let failed = store.result?.failed
 
             XCTAssertFalse(store.allowsLiveOperations, scenario.rawValue)
@@ -42,7 +42,7 @@ final class DesignSnapshotTests: XCTestCase {
             store.scan()
             store.scan(showProgress: false)
             store.stop()
-            await store.trash()
+            await store.cleanup()
 
             XCTAssertEqual(store.phase, phase, scenario.rawValue)
             XCTAssertEqual(store.categories.map(\.root), roots, scenario.rawValue)
@@ -51,7 +51,7 @@ final class DesignSnapshotTests: XCTestCase {
             XCTAssertEqual(store.scanning, scanning, scenario.rawValue)
             XCTAssertEqual(store.stopped, stopped, scenario.rawValue)
             XCTAssertEqual(store.hasScanned, hasScanned, scenario.rawValue)
-            XCTAssertEqual(store.result?.moved, moved, scenario.rawValue)
+            XCTAssertEqual(store.result?.cleaned, cleaned, scenario.rawValue)
             XCTAssertEqual(store.result?.failed, failed, scenario.rawValue)
         }
     }
@@ -71,34 +71,46 @@ final class DesignSnapshotTests: XCTestCase {
         let success = try XCTUnwrap(DesignScenario.completed.makeStore().result)
         let partial = try XCTUnwrap(DesignScenario.partial.makeStore().result)
         let failure = try XCTUnwrap(DesignScenario.failed.makeStore().result)
-        XCTAssertGreaterThan(success.moved, 0)
+        let deleted = try XCTUnwrap(DesignScenario.deleted.makeStore().result)
+        XCTAssertGreaterThan(success.cleaned, 0)
         XCTAssertEqual(success.failed, 0)
         XCTAssertTrue(success.failures.isEmpty)
-        XCTAssertGreaterThan(partial.moved, 0)
+        XCTAssertGreaterThan(partial.cleaned, 0)
         XCTAssertGreaterThan(partial.failed, 0)
         XCTAssertEqual(partial.failures.count, partial.failed)
-        XCTAssertEqual(failure.moved, 0)
-        XCTAssertEqual(failure.movedBytes, 0)
+        XCTAssertEqual(failure.cleaned, 0)
+        XCTAssertEqual(failure.cleanedBytes, 0)
         XCTAssertGreaterThan(failure.failed, 0)
         XCTAssertEqual(failure.failures.count, failure.failed)
+        XCTAssertGreaterThan(deleted.cleaned, 0)
+        XCTAssertEqual(deleted.mode, .delete)
     }
 
     func testCleanupOutcomeUsesCountsInsteadOfClaimingFreedSpace() {
-        let cases: [(TrashResult?, CleanOutcomePresentation.Kind, String, String)] = [
-            (TrashResult(moved: 4, failed: 0, movedBytes: 4096), .completed,
+        let cases: [(CleanupResult?, CleanOutcomePresentation.Kind, String, String)] = [
+            (CleanupResult(cleaned: 4, failed: 0, cleanedBytes: 4096), .completed,
              "已移到废纸篓", "checkmark.circle"),
-            (TrashResult(moved: 2, failed: 1, movedBytes: 2048), .partial,
+            (CleanupResult(cleaned: 2, failed: 1, cleanedBytes: 2048), .partial,
              "部分项目未能移动", "exclamationmark.circle"),
-            (TrashResult(moved: 0, failed: 3, movedBytes: 0), .failed,
+            (CleanupResult(cleaned: 0, failed: 3, cleanedBytes: 0), .failed,
              "未能移动所选项目", "xmark.circle"),
-            (TrashResult(moved: 0, failed: 0, movedBytes: 0), .unchanged,
+            (CleanupResult(cleaned: 0, failed: 0, cleanedBytes: 0), .unchanged,
              "未移动任何项目", "info.circle"),
             (nil, .unchanged, "未移动任何项目", "info.circle"),
             // Zero-byte files can be moved successfully. Size must not imply failure.
-            (TrashResult(moved: 1, failed: 0, movedBytes: 0), .completed,
+            (CleanupResult(cleaned: 1, failed: 0, cleanedBytes: 0), .completed,
              "已移到废纸篓", "checkmark.circle"),
-            (TrashResult(moved: 1, failed: 1, movedBytes: 0), .partial,
+            (CleanupResult(cleaned: 1, failed: 1, cleanedBytes: 0), .partial,
              "部分项目未能移动", "exclamationmark.circle"),
+            // Direct deletion keeps the same honest counts with its own wording.
+            (CleanupResult(mode: .delete, cleaned: 4, failed: 0, cleanedBytes: 4096), .completed,
+             "已删除", "checkmark.circle"),
+            (CleanupResult(mode: .delete, cleaned: 2, failed: 1, cleanedBytes: 2048), .partial,
+             "部分项目未能删除", "exclamationmark.circle"),
+            (CleanupResult(mode: .delete, cleaned: 0, failed: 3, cleanedBytes: 0), .failed,
+             "未能删除所选项目", "xmark.circle"),
+            (CleanupResult(mode: .delete, cleaned: 0, failed: 0, cleanedBytes: 0), .unchanged,
+             "未删除任何项目", "info.circle"),
         ]
         for (result, kind, title, symbol) in cases {
             let presentation = CleanOutcomePresentation(result: result)
@@ -107,6 +119,15 @@ final class DesignSnapshotTests: XCTestCase {
             XCTAssertEqual(presentation.symbol, symbol)
             XCTAssertFalse(presentation.title.contains("已释放"))
         }
+    }
+
+    @MainActor
+    func testNewStoreStartsWithTrashModeAndNoCleanupProgress() {
+        let store = CleanStore()
+        XCTAssertEqual(store.cleanupMode, .trash)
+        XCTAssertEqual(store.cleanupProgress.completed, 0)
+        XCTAssertEqual(store.cleanupProgress.total, 0)
+        XCTAssertNil(store.result)
     }
 
     @MainActor
@@ -301,7 +322,7 @@ final class DesignSnapshotTests: XCTestCase {
         ]
         try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
             .write(to: output.appendingPathComponent("manifest.json"), options: .atomic)
-        XCTAssertEqual(captures.count, 44)
+        XCTAssertEqual(captures.count, 46)
         XCTAssertEqual(Set(captures.compactMap { $0["page"] as? String }), Set(WorkspaceTab.allCases.map(\.rawValue)))
     }
 
@@ -471,7 +492,7 @@ private final class SnapshotWindow: NSWindow {
 }
 
 private enum DesignScenario: String, CaseIterable {
-    case initial, scanning, results, selection, empty, inaccessible, trashing, completed, partial, failed
+    case initial, scanning, results, selection, empty, inaccessible, trashing, completed, partial, failed, deleted
 
     @MainActor
     func makeStore() -> CleanStore {
@@ -504,22 +525,28 @@ private enum DesignScenario: String, CaseIterable {
                                               measuredCount: categories.count))
         case .trashing:
             return CleanStore(snapshot: .init(phase: .trashing, categories: categories,
-                measuredCount: categories.count, selected: selected))
+                measuredCount: categories.count, selected: selected,
+                cleanupProgress: .init(completed: 2, total: 3, currentName: "com.example.browser",
+                                       cleanedBytes: 838_860_800)))
         case .completed:
             return CleanStore(snapshot: .init(phase: .done, categories: [], result:
-                TrashResult(moved: 8, failed: 0, movedBytes: 4_194_304_000)))
+                CleanupResult(cleaned: 8, failed: 0, cleanedBytes: 4_194_304_000)))
         case .partial:
             return CleanStore(snapshot: .init(phase: .done, categories: [], result:
-                TrashResult(moved: 6, failed: 2, movedBytes: 3_145_728_000, failures: [
+                CleanupResult(cleaned: 6, failed: 2, cleanedBytes: 3_145_728_000, failures: [
                     "com.example.canvas：路径已变化或不可访问",
                     "Build.log：没有权限移动此项目",
                 ])))
         case .failed:
             return CleanStore(snapshot: .init(phase: .done, categories: [], result:
-                TrashResult(moved: 0, failed: 2, movedBytes: 0, failures: [
+                CleanupResult(cleaned: 0, failed: 2, cleanedBytes: 0, failures: [
                     "com.example.canvas：路径已变化或不可访问",
                     "Build.log：没有权限移动此项目",
                 ])))
+        case .deleted:
+            return CleanStore(snapshot: .init(phase: .done, categories: [],
+                result: CleanupResult(mode: .delete, cleaned: 8, failed: 0, cleanedBytes: 4_194_304_000),
+                cleanupMode: .delete))
         }
     }
 

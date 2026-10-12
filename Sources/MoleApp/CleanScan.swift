@@ -29,11 +29,35 @@ struct CleanCategory: Identifiable {
     var children: [CleanItem] = []
 }
 
-struct TrashResult {
-    let moved: Int
+/// 清理方式:移到废纸篓(可从访达恢复,清空前仍占磁盘)或直接删除(立即释放空间,不可恢复)。
+enum CleanupMode: Sendable {
+    case trash
+    case delete
+}
+
+/// 一次清理的结果,按真实计数汇报;不声称释放了多少空间。
+struct CleanupResult {
+    let mode: CleanupMode
+    let cleaned: Int
     let failed: Int
-    let movedBytes: Int64
+    let cleanedBytes: Int64
     var failures: [String] = []
+
+    init(mode: CleanupMode = .trash, cleaned: Int, failed: Int, cleanedBytes: Int64, failures: [String] = []) {
+        self.mode = mode
+        self.cleaned = cleaned
+        self.failed = failed
+        self.cleanedBytes = cleanedBytes
+        self.failures = failures
+    }
+}
+
+/// 清理过程的真实计数进度。只报项数,不预估时间。
+struct CleanupProgress: Sendable {
+    var completed = 0
+    var total = 0
+    var currentName = ""
+    var cleanedBytes: Int64 = 0
 }
 
 @MainActor
@@ -45,7 +69,11 @@ final class CleanStore: ObservableObject {
     @Published var phase: Phase = .ready
     @Published var selected: Set<String> = []
     @Published var expanded: Set<String> = []
-    @Published private(set) var result: TrashResult?
+    @Published private(set) var result: CleanupResult?
+    /// 当前或最近一次清理采用的方式,决定过程与结果文案。
+    @Published private(set) var cleanupMode: CleanupMode = .trash
+    /// 清理过程的计数进度,随每项完成更新。
+    @Published private(set) var cleanupProgress = CleanupProgress()
     @Published private(set) var stopped = false
     @Published private(set) var currentCategory = ""
     @Published private(set) var hasScanned = false
@@ -64,10 +92,12 @@ final class CleanStore: ObservableObject {
         var measuredCount = 0
         var selected: Set<String> = []
         var expanded: Set<String> = []
-        var result: TrashResult? = nil
+        var result: CleanupResult? = nil
         var stopped = false
         var currentCategory = ""
         var hasScanned = true
+        var cleanupMode: CleanupMode = .trash
+        var cleanupProgress = CleanupProgress()
     }
 
     convenience init(snapshot: Snapshot) {
@@ -90,6 +120,8 @@ final class CleanStore: ObservableObject {
         stopped = snapshot.stopped
         currentCategory = snapshot.currentCategory
         hasScanned = snapshot.hasScanned
+        cleanupMode = snapshot.cleanupMode
+        cleanupProgress = snapshot.cleanupProgress
     }
 #endif
 
@@ -251,45 +283,67 @@ final class CleanStore: ObservableObject {
         return result
     }
 
-    /// 只处理已勾选的真实子项。移动放在后台，页面切换不会丢失结果。
-    func trash() async {
+    /// 只处理已勾选的真实子项。清理放在后台，页面切换不会丢失结果。
+    func cleanup(mode: CleanupMode = .trash) async {
         guard allowsLiveOperations else { return }
         guard phase != .trashing, !scanning, !selected.isEmpty else { return }
         let snapshot = categories
         let ids = selected
+        cleanupMode = mode
+        cleanupProgress = CleanupProgress(total: ids.count)
         phase = .trashing
-        result = await Task.detached(priority: .userInitiated) {
-            Self.moveToTrash(categories: snapshot, selected: ids)
+        result = await Task.detached(priority: .userInitiated) { [weak self] in
+            await Self.performCleanup(categories: snapshot, selected: ids, mode: mode) { [weak self] progress in
+                guard let self else { return }
+                self.cleanupProgress = progress
+            }
         }.value
         phase = .done
         scan(showProgress: false)
     }
 
-    nonisolated private static func moveToTrash(categories: [CleanCategory], selected: Set<String>) -> TrashResult {
+    nonisolated private static func performCleanup(categories: [CleanCategory], selected: Set<String>,
+                                                   mode: CleanupMode,
+                                                   onProgress: (@MainActor (CleanupProgress) -> Void)? = nil) async -> CleanupResult {
         let fm = FileManager.default
-        var moved = 0
+        var cleaned = 0
         var failures: [String] = []
         var bytes: Int64 = 0
+        var completed = 0
+        var lastReport = ProcessInfo.processInfo.systemUptime
         for category in categories {
             for item in category.children where selected.contains(item.id) {
                 let url = URL(fileURLWithPath: item.id).standardizedFileURL
                 // 检查整条路径，防止扫描后父目录被替换为符号链接。
-                guard isValidTrashTarget(url, category: category) else {
+                if !isValidCleanupTarget(url, category: category) {
                     failures.append("\(item.name)：路径已变化或不可访问")
-                    continue
+                } else {
+                    do {
+                        switch mode {
+                        case .trash:
+                            try fm.trashItem(at: url, resultingItemURL: nil)
+                        case .delete:
+                            try fm.removeItem(at: url)
+                        }
+                        cleaned += 1
+                        bytes += item.sizeBytes
+                    } catch {
+                        failures.append("\(item.name)：\(error.localizedDescription)")
+                    }
                 }
-                do {
-                    try fm.trashItem(at: url, resultingItemURL: nil)
-                    moved += 1
-                    bytes += item.sizeBytes
-                } catch {
-                    failures.append("\(item.name)：\(error.localizedDescription)")
+                completed += 1
+                let now = ProcessInfo.processInfo.systemUptime
+                if now - lastReport >= 0.1 || completed == selected.count {
+                    lastReport = now
+                    await onProgress?(CleanupProgress(completed: completed, total: selected.count,
+                        currentName: item.name, cleanedBytes: bytes))
                 }
             }
         }
-        return TrashResult(moved: moved, failed: failures.count, movedBytes: bytes, failures: failures)
+        return CleanupResult(mode: mode, cleaned: cleaned, failed: failures.count,
+                             cleanedBytes: bytes, failures: failures)
     }
-    nonisolated static func isValidTrashTarget(_ url: URL, category: CleanCategory) -> Bool {
+    nonisolated static func isValidCleanupTarget(_ url: URL, category: CleanCategory) -> Bool {
         let root = category.root.standardizedFileURL
         let target = url.standardizedFileURL
         guard target.resolvingSymlinksInPath().path == target.path,

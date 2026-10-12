@@ -16,7 +16,8 @@ Reference principles, not copied screens:
 - [Transmit 5, Panic](https://help.panic.com/transmit/transmit5/getting-started/): aligned
   file data and inspection close to the item being reviewed.
 - [DaisyDisk's Collector](https://daisydiskapp.com/guide/4/en/DeletingFiles/): separate
-  discovery, selection and action. Qili retains its own Trash-only behavior.
+  discovery, selection and action. Qili retains its own explicit cleanup modes: Trash by
+  default, direct delete behind a second confirmation.
 - [Apple sidebars](https://developer.apple.com/design/human-interface-guidelines/sidebars):
   concise navigation, familiar symbols and keyboard access.
 
@@ -27,12 +28,18 @@ Reference principles, not copied screens:
 - Starts with an explicit “开始扫描” action instead of scanning on first appearance.
 - Shows category progress and measured bytes while scanning. Category counts are not
   presented as a time estimate, and incomplete results remain visibly incomplete.
-- Separates discovered size, selected size and moved size. No item is preselected.
+- Separates discovered size, selected size and cleaned size. No item is preselected.
 - Expands each review item to its selectable full path and a Finder reveal action.
 - Keeps selected count, size and the final confirmation outside the scroll area.
+- Offers two committed cleanup modes: move to Trash (recoverable) and direct delete
+  (frees space immediately, unrecoverable). Direct delete requires a second alert with
+  an acknowledgement toggle; the destructive button stays disabled until it is checked.
+- Reports real per-item counters while cleaning (completed/total and the current name),
+  with no invented time estimate, and keeps the outcome wording mode-aware.
 - Distinguishes complete, partial, failed and unchanged outcomes in words and symbols.
   Failures are visible without opening a disclosure.
-- States clearly that files in Trash still consume disk space.
+- States clearly that files in Trash still consume disk space, and that direct deletion
+  cannot be recovered from Trash.
 
 ### Shared components and the other pages
 
@@ -53,12 +60,14 @@ Reference principles, not copied screens:
 ## Safety boundaries
 
 The scan implementation, allowlisted roots, exclusions, physical file traversal,
-Trash path/symlink revalidation, command execution and update/security mechanisms are
-unchanged. DEBUG-only fixture constructors bypass live initialization and guard scan/stop/Trash,
+cleanup path/symlink revalidation, command execution and update/security mechanisms are
+unchanged. DEBUG-only fixture constructors bypass live initialization and guard scan/stop/cleanup,
 application/network/startup/maintenance actions and hardware polling at store entry points.
 Finder and folder-panel actions are inert, with isolated view preferences for fixtures.
+Both cleanup modes revalidate the same paths and process only checked children.
 
-There is no empty-Trash action, app uninstall, file-map deletion, speculative metric,
+There is no empty-Trash action — the app moves items to Trash but never empties it — and no
+app uninstall, file-map deletion, speculative metric,
 or new network service. Maintenance retains the existing selections and authorization.
 The test renderer never constructs the live ContentView or launches the app entry point.
 
@@ -94,8 +103,8 @@ Native compilation, existing safety regressions, fixture/outcome tests and PNG e
 must pass on macOS before acceptance. Portable source checks cannot establish a native
 build or visual result.
 
-The 44-image capture matrix covers cleanup initial, scanning, results, selection, empty,
-inaccessible, moving, complete, partial and failed states; file-map list/cards/empty/error;
+The 46-image capture matrix covers cleanup initial, scanning, results, selection, empty,
+inaccessible, moving, deleting, complete, partial and failed states; file-map list/cards/empty/error;
 status readings/unavailable metrics and the scrolled process table; app inventory/updates/
 startup items; and maintenance selection/results. Both window sizes use isolated synthetic
 fixtures. Native increased-contrast routing is not verified by these captures. Interactive keyboard,
@@ -109,7 +118,8 @@ Manual acceptance checklist:
 - Navigate with Command-1 through Command-5, Tab/Shift-Tab and Space. Check focus rings,
   screen-reader names, mixed category selection and disabled system startup controls.
 - Stop and restart scanning; repeatedly change pages; confirm cancelled dialogs do
-  nothing. Check that every cleanup path still requires explicit confirmation.
+  nothing. Check that every cleanup path still requires explicit confirmation, and that
+  direct deletion stays disabled until the recovery toggle is checked.
 - Navigate folders in list and card modes, change hidden-file preferences, go back and
   rescan. Verify the preference survives navigation and filtering preserves the denominator.
 - Review Apps, maintenance, file map and status at both window sizes. Check app search,

@@ -5,22 +5,31 @@ import SwiftUI
 struct CleanOutcomePresentation {
     enum Kind { case completed, partial, failed, unchanged }
     let kind: Kind
+    let mode: CleanupMode
 
-    init(result: TrashResult?) {
-        let moved = result?.moved ?? 0
+    init(result: CleanupResult?) {
+        let moved = result?.cleaned ?? 0
         let failed = result?.failed ?? 0
         if failed > 0 { kind = moved > 0 ? .partial : .failed }
         else { kind = moved > 0 ? .completed : .unchanged }
+        mode = result?.mode ?? .trash
     }
 
     var title: String {
-        switch kind {
-        case .completed: "已移到废纸篓"
-        case .partial: "部分项目未能移动"
-        case .failed: "未能移动所选项目"
-        case .unchanged: "未移动任何项目"
+        switch (mode, kind) {
+        case (.trash, .completed): "已移到废纸篓"
+        case (.trash, .partial): "部分项目未能移动"
+        case (.trash, .failed): "未能移动所选项目"
+        case (.trash, .unchanged): "未移动任何项目"
+        case (.delete, .completed): "已删除"
+        case (.delete, .partial): "部分项目未能删除"
+        case (.delete, .failed): "未能删除所选项目"
+        case (.delete, .unchanged): "未删除任何项目"
         }
     }
+
+    /// 汇总行与提示里的完成动词，随清理方式变化。
+    var completionVerb: String { mode == .delete ? "删除" : "移动" }
     var symbol: String {
         switch kind {
         case .completed: "checkmark.circle"
@@ -254,13 +263,32 @@ struct CleanPage: View {
     }
 
     private var trashingView: some View {
-        VStack(spacing: 18) {
-            ProgressView().controlSize(.regular)
-            Text("正在移到废纸篓").font(Theme.display)
-            Text("请等待当前操作完成。完成后会分别列出已移动和未能移动的项目。")
+        let progress = store.cleanupProgress
+        let deleting = store.cleanupMode == .delete
+        return VStack(spacing: 18) {
+            ProgressView(value: Double(min(progress.completed, max(progress.total, 1))),
+                         total: Double(max(progress.total, 1)))
+                .frame(maxWidth: 280)
+            Text(deleting ? "正在删除" : "正在移到废纸篓").font(Theme.display)
+            Text(trashingDetail)
                 .font(.system(size: 13)).foregroundStyle(Theme.dim2)
+                .multilineTextAlignment(.center)
+            Notice(text: deleting
+                ? "直接删除无法从废纸篓恢复。缓存与构建目录通常会在再次使用时自动重建。"
+                : "移入废纸篓后仍占用磁盘空间。需要时可从废纸篓恢复；栖理不会清空废纸篓。",
+                   symbol: deleting ? "trash.slash" : "arrow.uturn.backward",
+                   tone: deleting ? Theme.warm : Theme.dim2)
         }
         .frame(maxWidth: .infinity, minHeight: 340)
+    }
+
+    /// 只报已处理项数，不显示预估时间。
+    private var trashingDetail: String {
+        let progress = store.cleanupProgress
+        guard progress.total > 0 else { return "正在读取所选项目…" }
+        var detail = "已完成 \(progress.completed) / \(progress.total) 项"
+        if !progress.currentName.isEmpty { detail += " · 正在处理 \(progress.currentName)" }
+        return detail
     }
 
     private var doneView: some View {
@@ -274,23 +302,28 @@ struct CleanPage: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(presentation.title).font(.system(size: 24, weight: .semibold))
                     HStack(spacing: 12) {
-                        Chip(text: "\(store.result?.moved ?? 0) 项已移动", tone: (store.result?.moved ?? 0) > 0 ? .done : .plain)
+                        Chip(text: "\(store.result?.cleaned ?? 0) 项已\(presentation.completionVerb)", tone: (store.result?.cleaned ?? 0) > 0 ? .done : .plain)
                         if let failed = store.result?.failed, failed > 0 {
-                            Chip(text: "\(failed) 项未能移动", tone: .failed)
+                            Chip(text: "\(failed) 项未能\(store.cleanupMode == .delete ? "删除" : "移动")", tone: .failed)
                         }
                     }
-                    Text("已移动项目的测量大小：\(AppsStore.formatBytes(store.result?.movedBytes ?? 0))")
+                    Text("已\(presentation.completionVerb)项目的测量大小：\(AppsStore.formatBytes(store.result?.cleanedBytes ?? 0))")
                         .font(.system(size: 13)).foregroundStyle(Theme.dim2)
+                    Spacer()
                 }
                 Spacer(minLength: 0)
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))
-            Notice(text: "移入废纸篓后仍占用磁盘空间。需要时可从废纸篓恢复；栖理不会清空废纸篓。", symbol: "arrow.uturn.backward")
+            Notice(text: store.cleanupMode == .delete
+                ? "已直接删除所选项目，无法从废纸篓恢复。缓存类目录通常会在应用或系统再次使用时自动重建。"
+                : "移入废纸篓后仍占用磁盘空间。需要时可从废纸篓恢复；栖理不会清空废纸篓。",
+                   symbol: store.cleanupMode == .delete ? "trash.slash" : "arrow.uturn.backward",
+                   tone: store.cleanupMode == .delete ? Theme.warm : Theme.dim2)
             if let failures = store.result?.failures, !failures.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
-                    sectionTitle("未能移动的项目", detail: "这些项目未被本次操作移走")
+                    sectionTitle("未能\(store.cleanupMode == .delete ? "删除" : "移动")的项目", detail: "这些项目未被本次操作移走")
                     ForEach(Array(failures.enumerated()), id: \.offset) { _, failure in
                         Label(failure, systemImage: "exclamationmark.circle")
                             .font(.system(size: 13)).foregroundStyle(Theme.warm)
@@ -397,25 +430,52 @@ private struct CleanSteps: View {
 struct CleanSelectionBar: View {
     @ObservedObject var store: CleanStore
     @State private var confirmVisible = false
+    @State private var deleteConfirmVisible = false
+    @State private var deleteAcknowledged = false
     private var bytes: Int64 { store.selectedItems.reduce(0) { $0 + $1.sizeBytes } }
 
     var body: some View {
         HStack(spacing: 18) {
             VStack(alignment: .leading, spacing: 5) {
                 Text("已选 \(store.selectedItems.count) 项 · \(AppsStore.formatBytes(bytes))").font(.system(size: 14, weight: .semibold)).monospacedDigit()
-                Text("移到废纸篓后可恢复；清空前仍占用磁盘空间")
+                Text("移到废纸篓可恢复；直接删除立即释放空间，但不可恢复")
                     .font(.system(size: 12)).foregroundStyle(Theme.dim2)
             }
             Spacer(minLength: 10)
-            PillButton(title: "移到废纸篓…", disabled: store.selected.isEmpty || store.scanning) { confirmVisible = true }
+            PillButton(title: "整理所选…", disabled: store.selected.isEmpty || store.scanning) { confirmVisible = true }
         }
         .padding(.horizontal, 26).padding(.vertical, 18).background(Theme.surface)
         .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
-        .alert("将所选项目移到废纸篓？", isPresented: $confirmVisible) {
+        .alert("如何清理所选项目？", isPresented: $confirmVisible) {
             Button("取消", role: .cancel) {}
-            Button("移到废纸篓", role: .destructive) { Task { await store.trash() } }
+            Button("移到废纸篓") { Task { await store.cleanup(mode: .trash) } }
+            Button("直接删除…", role: .destructive) {
+                deleteAcknowledged = false
+                deleteConfirmVisible = true
+            }
         } message: {
-            Text("仅移动勾选的 \(store.selectedItems.count) 项（\(AppsStore.formatBytes(bytes))）。可从废纸篓恢复，清空前仍占用磁盘空间。正在运行的应用可能重新生成缓存。")
+            Text("""
+                勾选的 \(store.selectedItems.count) 项（\(AppsStore.formatBytes(bytes))）。
+                移到废纸篓：可从访达恢复，清空前仍占用磁盘。
+                直接删除：立即释放空间，无法从废纸篓恢复。
+                """)
+        }
+        .alert("直接删除所选项目？", isPresented: $deleteConfirmVisible) {
+            Toggle("我了解直接删除后无法从废纸篓恢复", isOn: $deleteAcknowledged)
+            Button("取消", role: .cancel) { deleteAcknowledged = false }
+            Button("直接删除", role: .destructive) {
+                deleteAcknowledged = false
+                Task { await store.cleanup(mode: .delete) }
+            }
+            .disabled(!deleteAcknowledged)
+        } message: {
+            Text("""
+                将永久删除勾选的 \(store.selectedItems.count) 项（\(AppsStore.formatBytes(bytes))）。
+                缓存与构建目录通常会在应用或系统再次使用时自动重建。
+                """)
+        }
+        .onChange(of: deleteConfirmVisible) { _, visible in
+            if !visible { deleteAcknowledged = false }
         }
     }
 }
