@@ -3,5 +3,6 @@ dist/
 .swiftpm/
 .DS_Store
 *.xcodeproj
+__pycache__/
 site/node_modules/
 site/dist/

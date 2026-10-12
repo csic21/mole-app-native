@@ -35,47 +35,15 @@ h1 { font-size: clamp(34px, 3.5vw, 49px); line-height: 1.3; font-weight: 600; le
 .hero-actions { display: flex; align-items: center; gap: 24px; }
 .text-link { font-size: 13px; border-bottom: 1px solid #9eafa7; padding-bottom: 3px; }
 .platform-note { font-size: 11px; color: var(--muted); margin-top: 18px; }
-.workspace { background: #172225; color: #e9efec; border-radius: 12px; overflow: hidden; box-shadow: 0 28px 46px -28px #1d383b60; border: 1px solid #354649; }
-.workspace-caption { display: flex; justify-content: space-between; font-size: 10px; padding: 10px 16px; border-bottom: 1px solid #c4d5ce18; color: #a9bdb4; }
-.workspace-body { display: grid; grid-template-columns: 152px 1fr; min-height: 386px; }
-.workspace-sidebar { padding: 23px 12px 15px; display: flex; flex-direction: column; }
-.workspace-brand { display: flex; align-items: center; gap: 7px; font-size: 19px; padding-bottom: 25px; }
-.workspace-brand small { display: block; font-size: 10px; color: #91a89d; margin-top: -3px; }
-.workspace-tabs { display: flex; flex-direction: column; gap: 4px; }
-.workspace-tabs button { border: 0; background: transparent; color: #abc1b7; display: flex; align-items: center; gap: 11px; padding: 10px; font-size: 11px; text-align: left; border-radius: 6px; }
-.workspace-tabs button > span { width: 16px; text-align: center; font-size: 17px; line-height: 1; }
-.workspace-tabs button.selected { color: #eff6f0; background: #8bc4af20; box-shadow: inset -2px 0 #8bc4af; }
+.workspace { background: #172225; color: #e9efec; border-radius: 12px; overflow: hidden; box-shadow: 0 28px 46px -28px #1d383b60; border: 1px solid #354649; margin: 0; }
+.workspace-caption { display: flex; justify-content: space-between; font-size: 10px; padding: 10px 16px; color: #a9bdb4; }
+.workspace-tabs { display: flex; gap: 6px; padding: 9px 12px; border-top: 1px solid #c4d5ce18; border-bottom: 1px solid #c4d5ce18; background: #1b2629; overflow-x: auto; }
+.workspace-tabs button { border: 0; background: transparent; color: #abc1b7; display: inline-flex; align-items: center; gap: 7px; padding: 7px 11px; font-size: 11px; white-space: nowrap; border-radius: 6px; }
+.workspace-tabs button > span { font-size: 13px; line-height: 1; }
+.workspace-tabs button.selected { color: #eff6f0; background: #8bc4af26; box-shadow: inset 0 -2px #8bc4af; }
 .workspace-tabs button:hover { background: #8bc4af15; }
-.workspace-motto { margin-top: auto; padding-left: 10px; font-size: 10px; color: #829c8f; }
-.workspace-main { background: #202a2d; padding: 24px 22px; min-width: 0; }
-.workspace-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 22px; }
-.workspace-heading h3 { margin: 0; font-size: 18px; font-weight: 500; }
-.workspace-heading > span { font-size: 9px; color: #91a89d; }
-.space-summary { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding: 18px; background: #263235; border-radius: 8px; }
-.space-summary p { margin: 0 0 8px; font-size: 10px; color: #abc1b7; }
-.space-summary strong { font-size: 40px; font-weight: 500; line-height: 1; letter-spacing: -.04em; display: block; }
-.space-summary strong span { font-size: 18px; }
-.space-summary small { font-size: 9px; color: #91a89d; display: block; margin-top: 12px; }
-.tray-mark { width: 62px; height: 58px; display: flex; flex-direction: column; justify-content: center; gap: 8px; transform: skewY(-9deg); }
-.tray-mark i { height: 9px; border: 1px solid #8bc4af; border-top: 0; border-radius: 0 0 3px 3px; }
-.space-row { display: flex; align-items: center; gap: 14px; padding-block: 12px; border-bottom: 1px solid #c4d5ce15; font-size: 10px; }
-.space-row > span { flex: 1; }
-.space-row b { font-size: 10px; font-weight: 400; width: 55px; text-align: right; color: #abc1b7; }
-.space-track { width: 70px; height: 4px; background: #cadacf10; border-radius: 2px; }
-.space-track i { display: block; height: 100%; background: #8bc4af; border-radius: 2px; }
-.preview-note { font-size: 9px; color: #91a89d; margin: 17px 0 0; }
-.tool-summary { background: #263235; padding: 17px; border-radius: 8px; margin-bottom: 12px; }
-.tool-symbol { font-size: 26px; color: #8bc4af; }
-.tool-summary h4 { margin: 4px 0; font-size: 15px; font-weight: 500; }
-.tool-summary p { margin: 0; font-size: 10px; color: #abc1b7; }
-.preview-list > div { display: flex; justify-content: space-between; padding: 12px 4px; font-size: 11px; border-bottom: 1px solid #c4d5ce18; }
-.preview-list b { font-weight: 400; font-size: 10px; color: #8bc4af; }
-.metric-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 18px; }
-.metric { background: #2c393c; padding: 16px; border-radius: 8px; }
-.metric > span { display: block; font-size: 10px; color: #abc1b7; }
-.metric > strong { display: block; font-size: 26px; font-weight: 500; margin-block: 8px 14px; }
-.sample-bars { display: flex; align-items: flex-end; gap: 5px; height: 48px; }
-.sample-bars i { background: #8bc4af80; flex: 1; border-radius: 2px 2px 0 0; }
+.workspace-shot { background: #0f1416; line-height: 0; }
+.workspace-shot img { width: 100%; height: auto; }
 .features, .approach { padding-block: 66px 76px; border-top: 1px solid var(--line); }
 .section-heading { display: flex; align-items: flex-end; justify-content: space-between; margin-bottom: 45px; gap: 32px; }
 .section-heading h2 { margin: 0; font-size: 32px; font-weight: 500; line-height: 1.35; letter-spacing: -.03em; }
@@ -120,10 +88,6 @@ footer nav { margin-left: auto; display: flex; gap: 18px; font-size: 10px; color
 @media (max-width: 1050px) {
   .site-nav, main, footer { width: calc(100% - 48px); }
   .hero { gap: 30px; grid-template-columns: .85fr 1.15fr; }
-  .workspace-body { grid-template-columns: 128px 1fr; }
-  .workspace-main { padding: 20px 16px; }
-  .workspace-brand { font-size: 16px; }
-  .workspace-heading > span, .tray-mark { display: none; }
   .feature-layout { gap: 42px; }
 }
 @media (max-width: 780px) {
@@ -134,8 +98,6 @@ footer nav { margin-left: auto; display: flex; gap: 18px; font-size: 10px; color
   h1 { font-size: 42px; }
   .hero-description { max-width: 33em; }
   .workspace { max-width: 600px; width: 100%; }
-  .workspace-body { grid-template-columns: 152px 1fr; min-height: 386px; }
-  .workspace-heading > span, .tray-mark { display: flex; }
   .feature-layout { grid-template-columns: 1fr; gap: 12px; }
   .feature-menu { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .feature-menu button { padding: 13px; border: 1px solid var(--line); border-radius: 7px; }
@@ -154,28 +116,9 @@ footer nav { margin-left: auto; display: flex; gap: 18px; font-size: 10px; color
   .site-nav .button { margin-left: auto; }
   h1 { font-size: 35px; }
   .hero-actions { gap: 18px; }
-  .workspace-body { grid-template-columns: 106px 1fr; min-height: 368px; }
-  .workspace-sidebar { padding: 18px 7px 12px; }
-  .workspace-brand { font-size: 14px; gap: 1px; padding-bottom: 17px; }
-  .workspace-brand img { width: 32px; height: 32px; }
-  .workspace-tabs button { gap: 5px; font-size: 10px; padding: 10px 6px; }
-  .workspace-tabs button > span { font-size: 14px; width: 14px; }
-  .workspace-motto { font-size: 9px; padding-left: 4px; }
-  .workspace-main { padding: 20px 12px; }
-  .workspace-heading { margin-bottom: 18px; }
-  .workspace-heading h3 { font-size: 16px; }
-  .workspace-heading > span, .tray-mark { display: none; }
-  .space-summary { padding: 14px; }
-  .space-summary strong { font-size: 32px; }
-  .space-track { width: 35px; }
-  .space-row { gap: 7px; font-size: 9px; }
-  .space-row b { width: 47px; font-size: 9px; }
   .workspace-caption { padding-inline: 12px; font-size: 9px; }
-  .metric-grid { gap: 7px; }
-  .metric { padding: 10px; }
-  .sample-bars { gap: 3px; }
-  .tool-summary h4 { font-size: 13px; }
-  .preview-list > div { font-size: 10px; }
+  .workspace-tabs button { gap: 5px; font-size: 10px; padding: 8px 7px; }
+  .workspace-tabs button > span { font-size: 12px; }
   .section-heading { align-items: flex-start; flex-direction: column; gap: 18px; margin-bottom: 28px; }
   .features, .approach { padding-block: 45px; }
   .principles { grid-template-columns: 1fr; gap: 35px; }
