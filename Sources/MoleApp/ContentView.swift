@@ -145,6 +145,7 @@ private struct Sidebar: View {
     @Binding var tab: WorkspaceTab
     let updateTitle: String?
     let updateAction: () -> Void
+    @AppStorage("appearance") private var appearance: AppAppearance = .dark
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -185,6 +186,19 @@ private struct Sidebar: View {
                 .padding(.bottom, 8)
             }
             Text("栖理 v\(AppVersion.current)").font(.system(size: 12)).foregroundStyle(Theme.dim2)
+            Menu {
+                Picker("外观", selection: $appearance) {
+                    ForEach(AppAppearance.allCases, id: \.self) { Text($0.label).tag($0) }
+                }
+            } label: {
+                Label("外观:\(appearance.label)", systemImage: "circle.lefthalf.filled")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .foregroundStyle(Theme.dim2)
+            .help("切换浅色、深色或跟随系统")
+            .accessibilityLabel("外观")
+            .padding(.top, 8)
             Text("给文件留位置，给工作留余地。")
                 .font(.system(size: 11)).foregroundStyle(Theme.dim3).padding(.top, 6)
         }

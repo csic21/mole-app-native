@@ -6,6 +6,8 @@ An original, calm Mac utility: neutral charcoal surfaces, restrained green for
 selection/action, readable metadata, and a clear sequence from measurement to review.
 Qili's name, mascot, app icon, bundle identifier, and underlying tool capabilities stay
 unchanged. The five pages share the same shell, controls, spacing and contrast palette.
+Users can switch between light, dark, and follow-system appearances from the sidebar;
+both palettes keep the same hierarchy and are checked for contrast.
 
 Reference principles, not copied screens:
 
@@ -34,7 +36,8 @@ Reference principles, not copied screens:
 
 ### Shared components and the other pages
 
-- Metadata palette passes 4.5:1 for opaque card, hover and selection surfaces.
+- Metadata palette passes 4.5:1 for opaque card, hover and selection surfaces in
+  both the light and the dark appearance (scripts/check_design_contrast.py).
 - Selection has a separate fill and outline; hover does not impersonate selection.
 - Check controls have 28-point targets and an explicit keyboard focus ring. Main
   actions have 34-point targets. Native segmented controls select app subpages.
@@ -83,7 +86,8 @@ bitmap capture, including native window controls. It does not use HTML mockups o
 can omit AppKit-backed controls. All data is synthetic, rooted under `/QiliPreview`,
 and actions cannot perform live filesystem work. An explicit opt-in and output path
 are required. Captures use fixed 1060×680 and 1220×820 window sizes, a Chinese locale,
-dark Aqua, and two scrolled process-table views. Native progress indicators are paused
+dark Aqua (the release default appearance), and two scrolled process-table views. Native
+progress indicators are paused
 for captures; these are review images, not a claim of pixel consistency across OS releases.
 
 Native compilation, existing safety regressions, fixture/outcome tests and PNG export

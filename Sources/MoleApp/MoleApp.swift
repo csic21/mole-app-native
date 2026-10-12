@@ -4,12 +4,13 @@ import SwiftUI
 @main
 struct MoleApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @AppStorage("appearance") private var appearance: AppAppearance = .dark
 
     var body: some Scene {
         WindowGroup("栖理") {
             ContentView()
                 .frame(minWidth: 1060, minHeight: 680)
-                .preferredColorScheme(.dark)
+                .preferredColorScheme(appearance.colorScheme)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1220, height: 820)
