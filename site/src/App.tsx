@@ -60,10 +60,10 @@ export default function App() {
             </div>
           </div>
           <div className="stage">
+            <StageTabs active={active} onSelect={selectTool} />
             <div id="preview-panel" role="tabpanel" aria-labelledby={`preview-tab-${active}`}>
               <AppWindow tool={active} />
             </div>
-            <StageTabs active={active} onSelect={selectTool} />
             <p className="stage-note">界面模拟绘制 · 示例数据</p>
           </div>
         </section>

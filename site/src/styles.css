@@ -44,9 +44,9 @@ h1 { font-family: var(--display); font-size: clamp(38px, 4vw, 60px); line-height
   padding: 56px max(24px, calc(50vw - 620px)) 30px;
 }
 .stage-note { color: #74877f; font-size: 11px; margin: 18px 0 0; text-align: center; }
-.stage-tabs { display: flex; justify-content: center; gap: 34px; border-top: 1px solid #2c3639; padding-top: 22px; margin-top: 34px; }
-.stage-tabs button { border: 0; background: none; color: #7f938c; font-size: 12.5px; padding: 4px 2px; }
-.stage-tabs button.selected { color: #dfe9e4; border-bottom: 1.5px solid #9BCBB5; }
+.stage-tabs { display: flex; justify-content: center; gap: 10px; padding-bottom: 16px; margin-bottom: 26px; }
+.stage-tabs button { border: 0; background: none; color: #7f938c; font-size: 12.5px; padding: 7px 16px; border-radius: 8px; }
+.stage-tabs button.selected { color: #dfe9e4; background: #232c2f; box-shadow: inset 0 -1.5px #9BCBB5; }
 .stage-tabs button:hover { color: #c6d4cd; }
 
 /* ------------------------------------------------ 模拟绘制的应用窗口 */
@@ -217,7 +217,7 @@ footer nav { margin-left: auto; display: flex; gap: 18px; font-size: 10px; color
   .app-grid { grid-template-columns: 1fr 1fr; }
   .app-cards { grid-template-columns: 1fr 1fr; }
   .app-legend { grid-template-columns: 1fr 1fr; }
-  .stage-tabs { gap: 18px; flex-wrap: wrap; }
+  .stage-tabs { gap: 6px; flex-wrap: wrap; }
   .feature-layout { grid-template-columns: 1fr; gap: 12px; }
   .feature-menu { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .feature-menu button { padding: 13px; border: 1px solid var(--line); border-radius: 7px; }
