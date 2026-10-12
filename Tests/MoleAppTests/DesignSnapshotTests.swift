@@ -675,13 +675,13 @@ private struct AppDesignFixtures {
         login = LoginItemsStore(snapshot: .init(entries: [
             LoginEntry(id: "/QiliPreview/LaunchAgents/com.example.canvas.helper.plist",
                 label: "com.example.canvas.helper", program: "/QiliPreview/Applications/Canvas.app/Contents/MacOS/Helper",
-                scope: .user, loaded: true, disabled: false),
+                scope: .user, loaded: true, disabled: false, configuredDisabled: false, processID: 4200, stateKnown: true),
             LoginEntry(id: "/QiliPreview/LaunchAgents/com.example.notes.sync.plist",
                 label: "com.example.notes.sync", program: "/QiliPreview/Applications/Notes.app/Contents/MacOS/Sync",
-                scope: .user, loaded: false, disabled: true),
+                scope: .user, loaded: false, disabled: true, configuredDisabled: true, processID: nil, stateKnown: true),
             LoginEntry(id: "/QiliPreview/SystemAgents/com.example.system.agent.plist",
                 label: "com.example.system.agent", program: "/QiliPreview/System/ExampleAgent",
-                scope: .system, loaded: true, disabled: false),
+                scope: .system, loaded: true, disabled: false, configuredDisabled: false, processID: 4202, stateKnown: true),
         ]))
         updates = UpdateStore(snapshot: .init(updates: [
             UpdateInfo(id: "preview-canvas", name: "Canvas", source: "Sparkle", from: "3.4.1", to: "3.5.0",
