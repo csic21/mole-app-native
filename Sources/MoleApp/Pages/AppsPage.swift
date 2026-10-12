@@ -290,20 +290,43 @@ struct AppsPage: View {
                 .padding(.bottom, 6)
 
             if updateStore.checking {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text(updateStore.progress.isEmpty ? "正在检查更新…" : updateStore.progress)
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(Theme.dim2)
+                VStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        ProgressView().controlSize(.small)
+                        Text(updateStore.progress.isEmpty ? "正在检查更新…" : updateStore.progress)
+                            .font(.system(size: 12.5))
+                            .foregroundStyle(Theme.dim2)
+                    }
+                    Button("停止并查看已完成结果") {
+                        guard allowsLiveOperations else { return }
+                        updateStore.stopChecking()
+                    }
+                    .buttonStyle(.bordered)
+                    .font(.system(size: 12))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.top, 40)
             } else if updateStore.updates.isEmpty {
-                Text(updateStore.lastChecked == nil ? "尚未检查" : "在已检查的来源中未发现可用更新")
+                Text(updateStore.emptyCheckMessage)
                     .font(.system(size: 13))
                     .foregroundStyle(Theme.dim2)
                     .frame(maxWidth: .infinity)
                     .padding(.top, 50)
+            }
+
+            if !updateStore.checking && !updateStore.checkWarnings.isEmpty {
+                DisclosureGroup("\(updateStore.checkWarnings.count) 个来源未完成检查") {
+                    ForEach(Array(updateStore.checkWarnings.enumerated()), id: \.offset) { _, warning in
+                        Text(warning)
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.warm)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .textSelection(.enabled)
+                    }
+                }
+                .font(.system(size: 12))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
             }
 
             ForEach(updateStore.checking ? [] : updateStore.updates) { info in
@@ -328,10 +351,11 @@ struct AppsPage: View {
                             Text(message)
                                 .font(.system(size: 11.5))
                                 .foregroundStyle(
-                                    message.contains("失败") ? Color(hex: 0xF09090) : Theme.dim3
+                                    message.contains("未完成") || message.contains("失败") ? Theme.danger : Theme.dim3
                                 )
                                 .lineLimit(1)
                                 .frame(width: 210, alignment: .trailing)
+                                .help(message)
                         }
                         Button {
                             guard allowsLiveOperations else { return }
@@ -348,7 +372,27 @@ struct AppsPage: View {
                         .disabled(updateStore.busyID != nil)
                         .opacity(updateStore.busyID == nil ? 1 : 0.5)
                     }
+                    if let log = updateStore.commandLogs[info.id], !log.isEmpty {
+                        DisclosureGroup("执行记录") {
+                            Text(log)
+                                .font(Theme.monoSmall)
+                                .foregroundStyle(Theme.dim2)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .font(.system(size: 11.5))
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 8)
+                    }
                 }
+            }
+
+            if !updateStore.checking && updateStore.checkWasCancelled && !updateStore.updates.isEmpty {
+                Text(updateStore.emptyCheckMessage)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.warm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 10)
             }
 
             FootBar(note: updateStore.lastCheckedText()) {
@@ -403,6 +447,15 @@ struct AppsPage: View {
                 .padding(.top, 40)
             }
 
+            if let error = loginStore.stateError {
+                Text(error)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.warm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 10)
+                    .padding(.bottom, 4)
+            }
+
             ForEach(loginStore.scanning && loginStore.entries.isEmpty ? [] : loginStore.entries) { entry in
                 RowBox {
                     HStack(spacing: 12) {
@@ -412,7 +465,8 @@ struct AppsPage: View {
                             pendingEntry = entry
                             showConfirm = true
                         }
-                        .disabled(entry.scope != .user)
+                        .disabled(entry.scope != .user || !entry.stateKnown || loginStore.scanning
+                                  || !loginStore.busyIDs.isEmpty)
                         .help(entry.scope == .user ? "变更前会请求确认" : "系统启动项只读")
 
                         HStack(spacing: 6) {
@@ -437,21 +491,21 @@ struct AppsPage: View {
                         if let error = loginStore.errors[entry.id] {
                             Text(error)
                                 .font(.system(size: 11.5))
-                                .foregroundStyle(Color(hex: 0xF09090))
+                                .foregroundStyle(Theme.danger)
                                 .lineLimit(1)
                                 .frame(width: 200, alignment: .trailing)
                         }
 
-                        Text(stateText(for: entry))
+                        Text(loginStore.busyIDs.contains(entry.id) ? "正在应用…" : entry.stateText)
                             .font(Theme.monoSmall)
                             .foregroundStyle(Theme.dim2)
-                            .frame(width: 110, alignment: .trailing)
+                            .frame(width: 130, alignment: .trailing)
                     }
                 }
             }
 
-            FootBar(note: "用户级 \(loginStore.entries.filter { $0.scope == .user && !$0.disabled }.count) 项启用 · 启停跨重启生效") {
-                PillButton(title: "重新扫描") {
+            FootBar(note: "用户级 \(loginStore.entries.filter { $0.scope == .user && !$0.disabled }.count) 项启用 · 状态列区分已加载与真实运行") {
+                PillButton(title: "重新扫描", disabled: loginStore.scanning || !loginStore.busyIDs.isEmpty) {
                     guard allowsLiveOperations else { return }
                     loginStore.scan()
                 }
@@ -481,11 +535,5 @@ struct AppsPage: View {
                     : "停用 \(entry.label) 会立即停止它,之后每次登录也不再运行;随时可以再启用。")
             }
         }
-    }
-
-    private func stateText(for entry: LoginEntry) -> String {
-        if entry.scope == .system { return "只读" }
-        if entry.disabled { return "已停用" }
-        return entry.loaded ? "已启用 · 运行中" : "已启用"
     }
 }

@@ -14,6 +14,18 @@ struct LoginEntry: Identifiable {
     let scope: Scope
     var loaded = false
     var disabled = false
+    var configuredDisabled = false
+    var processID: Int32?
+    var stateKnown = false
+
+    /// 加载状态与真实运行状态分别描述;"停用"不排除仍在运行的实例。
+    var stateText: String {
+        if scope == .system { return "只读" }
+        if !stateKnown { return "状态未知" }
+        if disabled { return processID == nil ? "已停用" : "已停用 · 仍在运行" }
+        if processID != nil { return "已启用 · 运行中" }
+        return loaded ? "已启用 · 等待触发" : "已启用 · 未加载"
+    }
 }
 
 @MainActor
@@ -21,9 +33,14 @@ final class LoginItemsStore: ObservableObject {
     @Published private(set) var entries: [LoginEntry] = []
     @Published private(set) var scanning = false
     @Published private(set) var errors: [String: String] = [:]
+    @Published private(set) var busyIDs: Set<String> = []
+    @Published private(set) var stateError: String?
 
     /// DEBUG snapshots never inspect or change the machine's launch services.
     private(set) var allowsLiveOperations = true
+    private var scanTask: Task<Void, Never>?
+    private var scanGeneration = UUID()
+    private var stateGeneration = UUID()
 
     init() {}
 
@@ -32,6 +49,8 @@ final class LoginItemsStore: ObservableObject {
         var entries: [LoginEntry] = []
         var scanning = false
         var errors: [String: String] = [:]
+        var busyIDs: Set<String> = []
+        var stateError: String? = nil
     }
 
     convenience init(snapshot: Snapshot) {
@@ -46,33 +65,56 @@ final class LoginItemsStore: ObservableObject {
         entries = snapshot.entries
         scanning = snapshot.scanning
         errors = snapshot.errors
+        busyIDs = snapshot.busyIDs
+        stateError = snapshot.stateError
     }
 #endif
 
     func scan() {
         guard allowsLiveOperations else { return }
+        guard busyIDs.isEmpty else { return }
+        scanTask?.cancel()
+        let generation = UUID()
+        scanGeneration = generation
         scanning = true
-        Task { [weak self] in
+        scanTask = Task { [weak self] in
             let discovered = await Task.detached(priority: .userInitiated) {
                 Self.discover()
             }.value
-            guard let self, !Task.isCancelled else { return }
+            guard let self, !Task.isCancelled, generation == self.scanGeneration else { return }
             self.entries = discovered
-            self.scanning = false
             await self.refreshStates()
+            if generation == self.scanGeneration { self.scanning = false }
         }
     }
 
+    /// 加载状态与真实 PID 分别读取;读不到时明确标注,而不是当作"未运行"。
     func refreshStates() async {
         guard allowsLiveOperations else { return }
+        let generation = UUID()
+        stateGeneration = generation
         let uid = getuid()
-        let (loaded, disabled) = await Task.detached(priority: .utility) {
-            (Self.loadedLabels(uid: uid), Self.disabledLabels(uid: uid))
-        }.value
+        async let list = CommandRunner.run("/bin/launchctl", ["list"], timeout: 15)
+        async let overrides = CommandRunner.run("/bin/launchctl", ["print-disabled", "gui/\(uid)"], timeout: 15)
+        let (listResult, overrideResult) = await (list, overrides)
+        guard generation == stateGeneration, !Task.isCancelled else { return }
+        guard listResult.code == 0, overrideResult.code == 0,
+              !listResult.truncated, !overrideResult.truncated else {
+            let reason = listResult.truncated || overrideResult.truncated ? "状态输出过长"
+                : (listResult.code != 0 ? listResult : overrideResult).failureMessage
+            stateError = "无法读取启动项状态:\(reason)"
+            entries = entries.map { var copy = $0; copy.stateKnown = false; return copy }
+            return
+        }
+        stateError = nil
+        let loaded = Self.parseLoaded(listResult.output)
+        let disabled = Self.parseDisabled(overrideResult.output)
         entries = entries.map { entry in
             var next = entry
-            next.loaded = loaded.contains(entry.label)
-            next.disabled = disabled.contains(entry.label)
+            next.loaded = loaded[entry.label] != nil
+            next.processID = loaded[entry.label]?.processID
+            next.disabled = disabled[entry.label] ?? entry.configuredDisabled
+            next.stateKnown = true
             return next
         }
     }
@@ -84,6 +126,9 @@ final class LoginItemsStore: ObservableObject {
             errors[entry.id] = "系统级条目需要管理员权限,暂不支持"
             return
         }
+        guard !scanning, entry.stateKnown, busyIDs.isEmpty else { return }
+        busyIDs.insert(entry.id)
+        defer { busyIDs.remove(entry.id) }
         let uid = getuid()
         let domain = "gui/\(uid)"
         errors[entry.id] = nil
@@ -99,19 +144,23 @@ final class LoginItemsStore: ObservableObject {
             return
         }
 
-        if enabled {
+        if enabled && !entry.loaded {
             let bootstrap = await CommandRunner.run(
                 "/bin/launchctl", ["bootstrap", domain, entry.id], timeout: 15
             )
-            if bootstrap.code != 0 && !bootstrap.combined.contains("already") {
-                errors[entry.id] = firstLine(bootstrap.combined)
+            if bootstrap.code != 0 {
+                // 不依赖本地化的错误字符串判断是否已经加载。
+                let state = await CommandRunner.run(
+                    "/bin/launchctl", ["print", "\(domain)/\(entry.label)"], timeout: 15
+                )
+                if state.code != 0 { errors[entry.id] = bootstrap.failureMessage }
             }
-        } else if entry.loaded {
+        } else if !enabled && entry.loaded {
             let bootout = await CommandRunner.run(
                 "/bin/launchctl", ["bootout", domain, entry.id], timeout: 15
             )
-            if bootout.code != 0 && !bootout.combined.contains("not found") {
-                errors[entry.id] = firstLine(bootout.combined)
+            if bootout.code != 0 {
+                errors[entry.id] = "已请求停用,但卸载失败:\(bootout.failureMessage)"
             }
         }
         await refreshStates()
@@ -145,7 +194,8 @@ final class LoginItemsStore: ObservableObject {
                 let program = (plist["Program"] as? String)
                     ?? (plist["ProgramArguments"] as? [String])?.first
                 entries.append(LoginEntry(
-                    id: file.path, label: label, program: program, scope: scope
+                    id: file.path, label: label, program: program, scope: scope,
+                    configuredDisabled: (plist["Disabled"] as? Bool) ?? false
                 ))
             }
         }
@@ -154,30 +204,39 @@ final class LoginItemsStore: ObservableObject {
         }
     }
 
-    nonisolated static func loadedLabels(uid: uid_t) -> Set<String> {
-        let result = CommandRunner.runSync("/bin/launchctl", ["list"], timeout: 15)
-        var labels = Set<String>()
-        for line in result.output.split(separator: "\n").dropFirst() {
-            let parts = line.split(separator: "\t", omittingEmptySubsequences: false)
-            if let label = parts.last, !label.isEmpty {
-                labels.insert(String(label).trimmingCharacters(in: .whitespaces))
-            }
+    struct ServiceState {
+        let processID: Int32?
+        let lastExit: Int32
+    }
+
+    /// `launchctl list`:PID 为 "-" 表示已加载但未运行;最后一列才是标签。
+    nonisolated static func parseLoaded(_ output: String) -> [String: ServiceState] {
+        var labels: [String: ServiceState] = [:]
+        for line in output.split(separator: "\n") {
+            let tabs = line.split(separator: "\t", omittingEmptySubsequences: false)
+            let parts = tabs.count == 3 ? tabs : line.split(maxSplits: 2, whereSeparator: { $0 == "\t" || $0 == " " })
+            guard parts.count >= 3, let exit = Int32(parts[1]),
+                  parts[0] == "-" || Int32(parts[0]) != nil else { continue }
+            labels[String(parts[2]).trimmingCharacters(in: .whitespaces)] = ServiceState(
+                processID: Int32(parts[0]), lastExit: exit
+            )
         }
         return labels
     }
 
-    nonisolated static func disabledLabels(uid: uid_t) -> Set<String> {
-        let result = CommandRunner.runSync(
-            "/bin/launchctl", ["print-disabled", "gui/\(uid)"], timeout: 15
-        )
-        var labels = Set<String>()
-        for line in result.output.split(separator: "\n") {
+    /// `launchctl print-disabled` 的 true/false 都保留,显式启用覆盖 plist 的 Disabled。
+    nonisolated static func parseDisabled(_ output: String) -> [String: Bool] {
+        var labels: [String: Bool] = [:]
+        for line in output.split(separator: "\n") {
             guard let arrow = line.range(of: "=>") else { continue }
             let value = line[arrow.upperBound...].trimmingCharacters(in: .whitespaces)
-            guard value.hasPrefix("true") else { continue }
+            let disabled: Bool
+            if value.hasPrefix("true") { disabled = true }
+            else if value.hasPrefix("false") { disabled = false }
+            else { continue }
             let key = line[..<arrow.lowerBound]
                 .trimmingCharacters(in: CharacterSet(charactersIn: " \t\""))
-            if !key.isEmpty { labels.insert(key) }
+            if !key.isEmpty { labels[key] = disabled }
         }
         return labels
     }
