@@ -1,41 +1,33 @@
 import { useState } from 'react'
 import { DOWNLOAD_URL, LOGO_URL, PROJECT_URL, TOOLS, isToolId, type ToolId } from './data/site'
 import { useHashRoute } from './hooks/useHashRoute'
+import AppWindow, { Icon } from './components/AppWindow'
 
-function WorkspacePreview({ active, onSelect }: { active: ToolId; onSelect: (id: ToolId) => void }) {
-  const tool = TOOLS.find((item) => item.id === active)!
+function StageTabs({ active, onSelect }: { active: ToolId; onSelect: (id: ToolId) => void }) {
   return (
-    <figure className="workspace">
-      <figcaption className="workspace-caption"><span>栖理工作台</span><span>真实界面截图 · 示例数据</span></figcaption>
-      <div className="workspace-tabs" role="tablist" aria-label="预览工具">
-        {TOOLS.map((item) => (
-          <button key={item.id} id={`preview-tab-${item.id}`} type="button" role="tab"
-            aria-selected={active === item.id} aria-controls="preview-panel"
-            className={active === item.id ? 'selected' : ''}
-            onClick={() => onSelect(item.id)}
-            onKeyDown={(event) => {
-              const keys = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End']
-              if (!keys.includes(event.key)) return
-              event.preventDefault()
-              const current = TOOLS.findIndex((entry) => entry.id === item.id)
-              const forward = event.key === 'ArrowDown' || event.key === 'ArrowRight'
-              const index = event.key === 'Home' ? 0 : event.key === 'End' ? TOOLS.length - 1
-                : (current + (forward ? 1 : -1) + TOOLS.length) % TOOLS.length
-              const next = TOOLS[index].id
-              onSelect(next)
-              document.getElementById(`preview-tab-${next}`)?.focus()
-            }}
-            tabIndex={active === item.id ? 0 : -1}>
-            <span aria-hidden="true">{item.symbol}</span>{item.label}
-          </button>
-        ))}
-      </div>
-      <div className="workspace-shot" id="preview-panel" role="tabpanel"
-        aria-labelledby={`preview-tab-${active}`} tabIndex={0}>
-        <img src={`${import.meta.env.BASE_URL}screenshots/${active}.png`} width={1220} height={820}
-          alt={`栖理「${tool.label}」的真实界面截图`} />
-      </div>
-    </figure>
+    <div className="stage-tabs" role="tablist" aria-label="界面预览">
+      {TOOLS.map((item) => (
+        <button key={item.id} id={`preview-tab-${item.id}`} type="button" role="tab"
+          aria-selected={active === item.id} aria-controls="preview-panel"
+          className={active === item.id ? 'selected' : ''}
+          onClick={() => onSelect(item.id)}
+          onKeyDown={(event) => {
+            const keys = ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End']
+            if (!keys.includes(event.key)) return
+            event.preventDefault()
+            const current = TOOLS.findIndex((entry) => entry.id === item.id)
+            const forward = event.key === 'ArrowDown' || event.key === 'ArrowRight'
+            const index = event.key === 'Home' ? 0 : event.key === 'End' ? TOOLS.length - 1
+              : (current + (forward ? 1 : -1) + TOOLS.length) % TOOLS.length
+            const next = TOOLS[index].id
+            onSelect(next)
+            document.getElementById(`preview-tab-${next}`)?.focus()
+          }}
+          tabIndex={active === item.id ? 0 : -1}>
+          {item.label}
+        </button>
+      ))}
+    </div>
   )
 }
 
@@ -60,19 +52,26 @@ export default function App() {
       <main id="main">
         <section className="hero">
           <div className="hero-copy">
-            <p className="product-kind"><span aria-hidden="true" />Mac 空间与维护工作台</p>
             <h1>让 Mac 的空间，<br />回到你手里。</h1>
-            <p className="hero-description">整理散落的缓存，找到占用空间的文件，照看日常运行的状态。栖理把这些小事放在一个安静的工作台里。</p>
-            <div className="hero-actions"><a className="button" href={DOWNLOAD_URL} target="_blank" rel="noreferrer">下载栖理</a><a className="text-link" href="#features">看看它能做什么</a></div>
-            <p className="platform-note">macOS 14 及以上 · 开源开发中</p>
+            <div className="hero-side">
+              <p className="hero-description">整理散落的缓存，找到占用空间的文件，照看日常运行的状态。栖理把这些小事放在一个安静的工作台里。</p>
+              <div className="hero-actions"><a className="button" href={DOWNLOAD_URL} target="_blank" rel="noreferrer">下载栖理</a><a className="text-link" href="#features">看看它能做什么</a></div>
+              <p className="platform-note">Mac 空间与维护工作台 · macOS 14 及以上 · 开源开发中</p>
+            </div>
           </div>
-          <WorkspacePreview active={active} onSelect={selectTool} />
+          <div className="stage">
+            <div id="preview-panel" role="tabpanel" aria-labelledby={`preview-tab-${active}`}>
+              <AppWindow tool={active} />
+            </div>
+            <StageTabs active={active} onSelect={selectTool} />
+            <p className="stage-note">界面模拟绘制 · 示例数据</p>
+          </div>
         </section>
         <section className="features" id="features">
           <div className="section-heading"><h2>各有位置，<br />一起打理。</h2><p>五项工具，围绕你的文件和工作。<br />从查看开始，把决定留给你。</p></div>
           <div className="feature-layout">
             <div className="feature-menu" aria-label="功能详情">
-              {TOOLS.map((item) => <button key={item.id} type="button" className={active === item.id ? 'active' : ''} aria-pressed={active === item.id} onClick={() => selectTool(item.id)}><span aria-hidden="true">{item.symbol}</span><span>{item.label}<small>{item.status}</small></span><span className="feature-indicator" aria-hidden="true">+</span></button>)}
+              {TOOLS.map((item) => <button key={item.id} type="button" className={active === item.id ? 'active' : ''} aria-pressed={active === item.id} onClick={() => selectTool(item.id)}><Icon name={item.id} size={21} /><span>{item.label}<small>{item.status}</small></span></button>)}
             </div>
             <article className="feature-detail" aria-live="polite">
               <p className="detail-name">{tool.label}</p><h3>{tool.title}</h3><p>{tool.description}</p>
